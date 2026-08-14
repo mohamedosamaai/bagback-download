@@ -132,16 +132,17 @@ async function fetchVerifiedProxies(): Promise<string[]> {
 }
 
 function normalizeFormat(format: string): string {
-  if (format === '720p') return 'bestvideo[height<=720]+bestaudio/best[height<=720]/best';
-  if (format === '480p') return 'bestvideo[height<=480]+bestaudio/best[height<=480]/best';
-  if (format === '360p') return 'bestvideo[height<=360]+bestaudio/best[height<=360]/best';
+  if (format === '720p') return 'bestvideo[height<=720]+bestaudio/best[height<=720]/b/best';
+  if (format === '480p') return 'bestvideo[height<=480]+bestaudio/best[height<=480]/b/best';
+  if (format === '360p') return 'bestvideo[height<=360]+bestaudio/best[height<=360]/b/best';
   if (format === 'bestaudio/best' || format === 'mp3') return 'bestaudio/best';
-  return 'bestvideo+bestaudio/best';
+  if (format && format !== 'bestvideo+bestaudio/best') return format;
+  return 'b/bv*+ba/best';
 }
 
 function ytdlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn('yt-dlp', args, { env: { ...process.env, PATH: process.env.PATH + ':/usr/local/bin' } });
+    const proc = spawn('yt-dlp', args, { env: { ...process.env, PATH: (process.env.PATH || '') + ':/usr/local/bin:/usr/bin' } });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
@@ -160,7 +161,7 @@ function isYouTubeUrl(url: string): boolean {
 // ─── Rate Limiter ───────────────────────────────────────────────────────────
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 requests per 15 minutes
+  max: 120, // Limit each IP to 120 requests per 15 minutes
   message: { error: 'Too many requests from this IP, please try again after 15 minutes' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -179,10 +180,15 @@ app.get('/api/health', async (_req: Request, res: Response) => {
 });
 
 app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
-  const { url } = req.body as { url?: string };
-  if (!url || !/^https?:\/\//i.test(url)) {
-    res.status(400).json({ error: 'Invalid URL. Must start with http:// or https://' });
+  let { url } = req.body as { url?: string };
+  if (!url || typeof url !== 'string') {
+    res.status(400).json({ error: 'Invalid URL' });
     return;
+  }
+
+  url = url.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    url = 'https://' + url;
   }
 
   // 1. YouTube OEmbed First (instant metadata)
@@ -214,11 +220,10 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
   // 2. Try yt-dlp directly
   try {
     const raw = await ytdlp([
+      '--extractor-args', 'youtube:player_client=android,web',
       '--dump-json',
       '--no-playlist',
       '--flat-playlist',
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-      '--remote-components', 'ejs:github',
       url,
     ]);
     const info = JSON.parse(raw);
@@ -253,11 +258,11 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
   for (const proxy of verifiedProxies) {
     try {
       const raw = await ytdlp([
+        '--extractor-args', 'youtube:player_client=android,web',
         '--proxy', `http://${proxy}`,
         '--dump-json',
         '--no-playlist',
         '--flat-playlist',
-        '--remote-components', 'ejs:github',
         url,
       ]);
       const info = JSON.parse(raw);
@@ -292,15 +297,20 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
 });
 
 app.post('/api/download', apiLimiter, (req: Request, res: Response) => {
-  const { url, format = 'bestvideo+bestaudio/best', audioOnly = false } = req.body as {
+  let { url, format = 'bestvideo+bestaudio/best', audioOnly = false } = req.body as {
     url?: string;
     format?: string;
     audioOnly?: boolean;
   };
 
-  if (!url || !/^https?:\/\//i.test(url)) {
+  if (!url || typeof url !== 'string') {
     res.status(400).json({ error: 'Invalid URL' });
     return;
+  }
+
+  url = url.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    url = 'https://' + url;
   }
 
   const id = uuidv4();
@@ -329,7 +339,15 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
 
   // Build base yt-dlp arguments
   const buildArgs = (proxyUrl?: string) => {
-    const base: string[] = [];
+    const base: string[] = [
+      '--extractor-args', 'youtube:player_client=android,web',
+      '--retries', '10',
+      '--fragment-retries', '10',
+      '--file-access-retries', '5',
+      '--no-playlist',
+      '--progress',
+      '--newline',
+    ];
 
     if (proxyUrl) {
       base.push('--proxy', `http://${proxyUrl}`);
@@ -341,12 +359,6 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
         '--audio-format', 'mp3',
         '--audio-quality', '0',
         '-o', outputTemplate,
-        '--no-playlist',
-        '--progress',
-        '--newline',
-        '--concurrent-fragments', '8',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        '--remote-components', 'ejs:github',
         url
       );
     } else {
@@ -354,12 +366,6 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
         '-f', realFormat,
         '--merge-output-format', 'mp4',
         '-o', outputTemplate,
-        '--no-playlist',
-        '--progress',
-        '--newline',
-        '--concurrent-fragments', '8',
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        '--remote-components', 'ejs:github',
         url
       );
     }

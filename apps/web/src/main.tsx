@@ -758,10 +758,14 @@ function App() {
   }, []);
 
   const handleAnalyze = useCallback(async (overrideUrl?: string) => {
-    const targetUrl = (overrideUrl || url).trim();
+    let targetUrl = (overrideUrl || url).trim();
     if (!targetUrl) {
       inputRef.current?.focus();
       return;
+    }
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      targetUrl = 'https://' + targetUrl;
+      setUrl(targetUrl);
     }
     setAnalyzeError('');
     setAnalyzeResult(null);
