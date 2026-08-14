@@ -1,8 +1,16 @@
 User-agent: *
 Allow: /
 
-# Sitemaps
-Sitemap: https://mohamedosamaai.github.io/bagback-download-showcase/sitemap.xml
+User-agent: Googlebot
+Allow: /
 
-# AI Indexing
-# llms.txt: https://github.com/mohamedosamaai/bagback-download-showcase/blob/main/llms.txt
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+Sitemap: https://download.bagbacktech.com/sitemap.xml

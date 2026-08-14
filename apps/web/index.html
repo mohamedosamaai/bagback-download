@@ -14,7 +14,8 @@
     <meta property="og:url" content="https://download.bagbacktech.com" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/apple-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -47,7 +48,7 @@
           "@type": "Organization",
           "name": "Bagback Digital Solutions",
           "url": "https://bagbacktech.com",
-          "logo": "https://download.bagbacktech.com/logo-landscape.png",
+          "logo": "https://download.bagbacktech.com/logo.png",
           "founder": {
             "@type": "Person",
             "name": "Mohamed Osama",
@@ -56,6 +57,30 @@
         }
       ]
     }
+    </script>
+    <!-- Bagback Hub Telemetry Injection -->
+    <script>
+      (function() {
+        setTimeout(function() {
+          var HUB_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:3456/telemetry'
+            : 'https://hub.bagbacktech.com/api/v1/telemetry/event';
+          fetch(HUB_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Bagback-Secret-Key': 'test-secret-key'
+            },
+            body: JSON.stringify({
+              project_id: 'bagback-download',
+              event_type: 'PAGE_VIEW',
+              timestamp: new Date().toISOString(),
+              user: { id: 'anonymous' },
+              payload: { path: window.location.pathname, referrer: document.referrer }
+            })
+          }).catch(console.error);
+        }, 1000);
+      })();
     </script>
   </head>
   <body>

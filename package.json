@@ -7,9 +7,7 @@
     "web:dev": "cd apps/web && npm run dev",
     "web:build": "cd apps/web && npm run build",
     "server:build": "cd apps/server && npm run build",
-    "server:start": "cd apps/server && npm start",
-    "build": "npm run server:build && npm run web:build",
-    "lint": "echo \"No linting errors found. All systems operational!\""
+    "server:start": "cd apps/server && npm start"
   },
   "workspaces": [
     "apps/*",

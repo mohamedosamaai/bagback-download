@@ -1,31 +1,24 @@
 # Security Policy
 
-## Supported Versions
+## Reporting
 
-The following versions are actively supported with security updates and critical patches:
+Please report security concerns privately to the project owner before public disclosure.
 
-| Version | Supported |
-| ------- | --------- |
-| v1.0.x  | 🟢 Yes    |
-| < v1.0  | ❌ No     |
+Owner platform: https://bagbacktech.com
 
----
+## Current Status
 
-## Reporting Vulnerabilities
-
-Please report security concerns privately to the project maintainers rather than opening a public issue. 
-
-You can submit security disclosures via:
-- **Email**: security@bagbacktech.com
-- **Platform**: https://bagbacktech.com
-
-We will review reports within 48 hours and coordinate a patch release.
-
----
+This project is in early scaffold stage. No production release is available yet.
 
 ## Security Principles
 
-- **Zero Secret Storage**: API tokens and cloud keys must never be hardcoded. Use environmental configuration patterns.
-- **Privacy Enforcement**: Do not introduce third-party trackers, telemetry, or analytics by default.
-- **Minimal Footprint**: Keep external dependencies to a minimum. All dependencies must be vetted for supply chain vulnerabilities.
-- **Secure Defaults**: Deploy with sanitization scripts that scrub user inputs before feeding them to child processes like `yt-dlp`.
+- Do not store user credentials in the app.
+- Do not add tracking by default.
+- Do not add hidden network behavior.
+- Keep dependencies minimal.
+- Review every dependency before release.
+- Keep user-facing warnings clear.
+
+## Supported Versions
+
+No public version is currently supported.
