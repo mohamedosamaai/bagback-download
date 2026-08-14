@@ -217,7 +217,8 @@ function formatDuration(seconds?: number): string {
 function truncateUrl(url: string, max = 40): string {
   try {
     const u = new URL(url);
-    const display = u.hostname + u.pathname;
+    const search = u.search ? u.search : '';
+    const display = u.hostname + u.pathname + search;
     return display.length > max ? display.slice(0, max) + '…' : display;
   } catch {
     return url.slice(0, max) + (url.length > max ? '…' : '');
@@ -833,6 +834,11 @@ function App() {
     setJobs((prev) => prev.filter((j) => j.id !== id));
   }, []);
 
+  const handleClearAll = useCallback(async () => {
+    await fetch(`${API}/jobs`, { method: 'DELETE' });
+    setJobs([]);
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleAnalyze();
   };
@@ -965,7 +971,7 @@ function App() {
                     <button
                       className="btn btn-ghost"
                       style={{ fontSize: '12px', padding: '5px 12px', minHeight: '32px' }}
-                      onClick={() => Promise.all(doneJobs.map((j) => handleDelete(j.id)))}
+                      onClick={handleClearAll}
                     >
                       {t('clearAll')}
                     </button>

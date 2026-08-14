@@ -136,7 +136,9 @@ function normalizeFormat(format: string): string {
   if (format === '480p') return 'bestvideo[height<=480]+bestaudio/best[height<=480]/b/best';
   if (format === '360p') return 'bestvideo[height<=360]+bestaudio/best[height<=360]/b/best';
   if (format === 'bestaudio/best' || format === 'mp3') return 'bestaudio/best';
-  if (format && format !== 'bestvideo+bestaudio/best') return format;
+  if (format && format !== 'bestvideo+bestaudio/best' && format !== 'best') {
+    return `${format}+ba/b/${format}/best`;
+  }
   return 'b/bv*+ba/best';
 }
 
@@ -520,6 +522,21 @@ app.get('/api/jobs/:id/file', (req: Request, res: Response) => {
   fs.createReadStream(job.filePath).pipe(res);
 });
 
+app.delete('/api/jobs', (_req: Request, res: Response) => {
+  for (const [id, job] of jobs.entries()) {
+    if (job.filePath && fs.existsSync(job.filePath)) {
+      try {
+        fs.unlinkSync(job.filePath);
+      } catch (e) {
+        console.error(`[Delete All] Error removing ${job.filePath}`, e);
+      }
+    }
+  }
+  jobs.clear();
+  broadcastJobs();
+  res.json({ cleared: true });
+});
+
 app.delete('/api/jobs/:id', (req: Request, res: Response) => {
   const job = jobs.get(req.params.id);
   if (!job) {
@@ -527,9 +544,14 @@ app.delete('/api/jobs/:id', (req: Request, res: Response) => {
     return;
   }
   if (job.filePath && fs.existsSync(job.filePath)) {
-    fs.unlinkSync(job.filePath);
+    try {
+      fs.unlinkSync(job.filePath);
+    } catch (e) {
+      console.error(`[Delete Job] Error removing ${job.filePath}`, e);
+    }
   }
   jobs.delete(req.params.id);
+  broadcastJobs();
   res.json({ deleted: true });
 });
 
