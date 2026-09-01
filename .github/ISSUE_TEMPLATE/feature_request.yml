@@ -1,0 +1,36 @@
+name: 🚀 Feature Request
+description: Propose a new feature, enhancement, or architectural design.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature! Please complete this structured form to help us evaluate the enhancement.
+  - type: input
+    id: title
+    attributes:
+      label: Feature Title
+      placeholder: E.g., Integrate Google Drive cloud saver
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / User Need
+      placeholder: What problem does this solve, and why is this feature beneficial?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      placeholder: Describe the desired feature implementation in detail.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Architectural Impact
+      placeholder: Which monorepo package or application is affected (e.g., apps/web, apps/server)?
+    validations:
+      required: false

@@ -1,7 +1,21 @@
 {
-  "name": "@bagback-download/core",
-  "version": "0.1.0",
-  "type": "module",
-  "main": "src/index.ts",
-  "license": "Apache-2.0"
+  "name": "@mohamedosamaai/bagback-download-core",
+  "version": "1.0.0",
+  "description": "Core domain models and interfaces for Bagback Download Manager",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mohamedosamaai/bagback-download-showcase.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "license": "MIT"
 }
