@@ -32,12 +32,12 @@ jobs:
 
       - name: Publish Core Package
         run: |
-          npm publish packages/core --access public || echo "Core package version already published"
+          npm publish ./packages/core --access public || echo "Core package version already published"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Engine Package
         run: |
-          npm publish packages/downloader-engine --access public || echo "Engine package version already published"
+          npm publish ./packages/downloader-engine --access public || echo "Engine package version already published"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
