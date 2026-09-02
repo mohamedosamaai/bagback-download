@@ -134,7 +134,7 @@ If this project helps your business or organization, please consider supporting 
 
 - 💖 **[Sponsor via GitHub](https://github.com/sponsors/mohamedosamaai)**: Become a monthly backer to ensure ongoing development.
 - ☕ **[Buy Me a Coffee](https://www.buymeacoffee.com/mohamedosama)**: A quick way to show appreciation.
-- 💼 **Enterprise & Commercial Support**: Need custom integrations, white-labeling, or dedicated SLA support? Reach out directly via [LinkedIn](https://linkedin.com/in/mohamedosamaai) or [Email](mailto:im@mohamedosama.me).
+- 💼 **Enterprise & Commercial Support**: Need custom integrations, white-labeling, or dedicated SLA support? Reach out directly via [LinkedIn](https://www.linkedin.com/in/mohamed-osama-ai/) or [Email](mailto:im@mohamedosama.me).
 
 ---
 
