@@ -13,6 +13,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,14 +32,32 @@ jobs:
       - name: Build Monorepo
         run: npm run build
 
+      - name: Pack Distribution Tarballs
+        id: pack
+        run: |
+          CORE_TAR=$(cd packages/core && npm pack)
+          ENGINE_TAR=$(cd packages/downloader-engine && npm pack)
+          echo "core_tar=packages/core/$CORE_TAR" >> $GITHUB_OUTPUT
+          echo "engine_tar=packages/downloader-engine/$ENGINE_TAR" >> $GITHUB_OUTPUT
+
+      - name: Attest Core Package Build Provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.pack.outputs.core_tar }}
+
+      - name: Attest Engine Package Build Provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.pack.outputs.engine_tar }}
+
       - name: Publish Core Package
         run: |
-          npm publish ./packages/core --access public || echo "Core package version already published"
+          npm publish ${{ steps.pack.outputs.core_tar }} --access public || echo "Core package version already published"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Engine Package
         run: |
-          npm publish ./packages/downloader-engine --access public || echo "Engine package version already published"
+          npm publish ${{ steps.pack.outputs.engine_tar }} --access public || echo "Engine package version already published"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
