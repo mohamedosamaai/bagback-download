@@ -63,7 +63,7 @@ const dict = {
     
     // Modals
     termsTitle: 'شروط الاستخدام والخدمة',
-    termsBody: `Bagback Download هو تطبيق وإطارية عمل مفتوحة المصدر (Apache 2.0) مخصصة لإدارة وتحميل الوسائط الرقمية والملفات التي يمتلك المستخدم الحق القانوني في حفظها أو الوصول إليها.
+    termsBody: `Bagback Download هو تطبيق وإطارية عمل مفتوحة المصدر (MIT License) مخصصة لإدارة وتحميل الوسائط الرقمية والملفات التي يمتلك المستخدم الحق القانوني في حفظها أو الوصول إليها.
 - يقر المستخدم بمسؤوليته الكاملة عن أي محتوى يقوم بتحميله أو معالجته عبر التطبيق.
 - يُحظر استخدام الخدمة في أي أنشطة تنتهك حقوق الملكية الفكرية أو القوانين المحلية والدولية.
 - يتم تقديم البرمجية كما هي (As-Is) دون أي ضمانات صريحة أو ضمنية.`,
@@ -77,7 +77,7 @@ const dict = {
     cleanRoomTitle: 'بيان المشروع والتطوير المستقل (Clean-Room Policy)',
     cleanRoomBody: `تم بناء Bagback Download بالكامل من الصفر بواسطة المهندس محمد أسامة وشركة Bagback Digital Solutions كمنتج أصلي مفتوح المصدر:
 - التزام تام بسياسة Clean-Room Development دون نسخ أي كود أو واجهات من تطبيقات أخرى.
-- ترخيص البرمجية: Apache License 2.0 متاح للعامة على ريبوزيتوري GitHub.
+- ترخيص البرمجية: MIT License متاح للعامة على ريبوزيتوري GitHub.
 - رؤية المنتجات: جزء من منظومة Bagback التقنية للحلول الرقمية المتطورة.`,
 
     closeModal: 'إغلاق',
@@ -133,7 +133,7 @@ const dict = {
     
     // Modals
     termsTitle: 'Terms of Service & Usage',
-    termsBody: `Bagback Download is an open-source utility (Apache 2.0) built for managing and downloading digital media and files that users have explicit legal rights to access.
+    termsBody: `Bagback Download is an open-source utility (MIT License) built for managing and downloading digital media and files that users have explicit legal rights to access.
 - Users assume full responsibility for all content processed through the application.
 - Infringing upon intellectual property or copyright laws is strictly prohibited.
 - Software is provided "As-Is" without warranties of any kind.`,
@@ -147,7 +147,7 @@ const dict = {
     cleanRoomTitle: 'Clean-Room Engineering Statement',
     cleanRoomBody: `Bagback Download was engineered completely from scratch by Mohamed Osama and Bagback Digital Solutions as an original open-source product:
 - Strict compliance with Clean-Room Development standards — zero copied source code or UI assets.
-- License: Apache License 2.0 publicly available on GitHub.
+- License: MIT License publicly available on GitHub.
 - Ecosystem: Proud component of the Bagback Digital Solutions technology suite.`,
 
     closeModal: 'Close',
@@ -217,7 +217,8 @@ function formatDuration(seconds?: number): string {
 function truncateUrl(url: string, max = 40): string {
   try {
     const u = new URL(url);
-    const display = u.hostname + u.pathname;
+    const search = u.search ? u.search : '';
+    const display = u.hostname + u.pathname + search;
     return display.length > max ? display.slice(0, max) + '…' : display;
   } catch {
     return url.slice(0, max) + (url.length > max ? '…' : '');
@@ -339,13 +340,15 @@ const PasteIcon = () => (
 
 // ─── Dropbox Saver Component ────────────────────────────────────────────────
 
+const DROPBOX_ENABLED = Boolean(import.meta.env.VITE_DROPBOX_APP_KEY);
+
 function DropboxSaver({ url, filename, title }: { url: string; filename: string; title: string }) {
   useEffect(() => {
     if (!document.getElementById('dropboxjs')) {
       const script = document.createElement('script');
       script.src = 'https://www.dropbox.com/static/api/2/dropins.js';
       script.id = 'dropboxjs';
-      script.setAttribute('data-app-key', 'YOUR_DROPBOX_APP_KEY');
+      script.setAttribute('data-app-key', import.meta.env.VITE_DROPBOX_APP_KEY || '');
       document.body.appendChild(script);
     }
   }, []);
@@ -511,11 +514,13 @@ function JobCard({
             >
               <ShareIcon />
             </button>
-            <DropboxSaver
-              url={`${window.location.origin}${API}/jobs/${job.id}/file`}
-              filename={job.fileName || 'download'}
-              title={t('saveToDropbox')}
-            />
+            {DROPBOX_ENABLED && (
+              <DropboxSaver
+                url={`${window.location.origin}${API}/jobs/${job.id}/file`}
+                filename={job.fileName || 'download'}
+                title={t('saveToDropbox')}
+              />
+            )}
             <button
               className="icon-btn delete-btn"
               onClick={() => onDelete(job.id)}
@@ -833,6 +838,11 @@ function App() {
     setJobs((prev) => prev.filter((j) => j.id !== id));
   }, []);
 
+  const handleClearAll = useCallback(async () => {
+    await fetch(`${API}/jobs`, { method: 'DELETE' });
+    setJobs([]);
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleAnalyze();
   };
@@ -965,7 +975,7 @@ function App() {
                     <button
                       className="btn btn-ghost"
                       style={{ fontSize: '12px', padding: '5px 12px', minHeight: '32px' }}
-                      onClick={() => Promise.all(doneJobs.map((j) => handleDelete(j.id)))}
+                      onClick={handleClearAll}
                     >
                       {t('clearAll')}
                     </button>
@@ -1063,7 +1073,7 @@ function App() {
             <a href="https://bagbacktech.com" target="_blank" rel="noreferrer">
               Bagback Digital Solutions
             </a>{' '}
-            · Apache 2.0 License
+            · MIT License
           </div>
 
           <div className="footer-links">

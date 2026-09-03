@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { Lang } from '../types';
+
+export type Lang = 'ar' | 'en';
 
 export const dict = {
   ar: {
@@ -45,7 +46,7 @@ export const dict = {
     
     // Modals
     termsTitle: 'شروط الاستخدام والخدمة',
-    termsBody: `Bagback Download هو تطبيق وإطارية عمل مفتوحة المصدر (Apache 2.0) مخصصة لإدارة وتحميل الوسائط الرقمية والملفات التي يمتلك المستخدم الحق القانوني في حفظها أو الوصول إليها.
+    termsBody: `Bagback Download هو تطبيق وإطارية عمل مفتوحة المصدر (MIT License) مخصصة لإدارة وتحميل الوسائط الرقمية والملفات التي يمتلك المستخدم الحق القانوني في حفظها أو الوصول إليها.
 - يقر المستخدم بمسؤوليته الكاملة عن أي محتوى يقوم بتحميله أو معالجته عبر التطبيق.
 - يُحظر استخدام الخدمة في أي أنشطة تنتهك حقوق الملكية الفكرية أو القوانين المحلية والدولية.
 - يتم تقديم البرمجية كما هي (As-Is) دون أي ضمانات صريحة أو ضمنية.`,
@@ -59,7 +60,7 @@ export const dict = {
     cleanRoomTitle: 'بيان المشروع والتطوير المستقل (Clean-Room Policy)',
     cleanRoomBody: `تم بناء Bagback Download بالكامل من الصفر بواسطة المهندس محمد أسامة وشركة Bagback Digital Solutions كمنتج أصلي مفتوح المصدر:
 - التزام تام بسياسة Clean-Room Development دون نسخ أي كود أو واجهات من تطبيقات أخرى.
-- ترخيص البرمجية: Apache License 2.0 متاح للعامة على ريبوزيتوري GitHub.
+- ترخيص البرمجية: MIT License متاح للعامة على ريبوزيتوري GitHub.
 - رؤية المنتجات: جزء من منظومة Bagback التقنية للحلول الرقمية المتطورة.`,
 
     closeModal: 'إغلاق',
@@ -107,7 +108,7 @@ export const dict = {
     
     // Modals
     termsTitle: 'Terms of Service & Usage',
-    termsBody: `Bagback Download is an open-source utility (Apache 2.0) built for managing and downloading digital media and files that users have explicit legal rights to access.
+    termsBody: `Bagback Download is an open-source utility (MIT License) built for managing and downloading digital media and files that users have explicit legal rights to access.
 - Users assume full responsibility for all content processed through the application.
 - Infringing upon intellectual property or copyright laws is strictly prohibited.
 - Software is provided "As-Is" without warranties of any kind.`,
@@ -121,7 +122,7 @@ export const dict = {
     cleanRoomTitle: 'Clean-Room Engineering Statement',
     cleanRoomBody: `Bagback Download was engineered completely from scratch by Mohamed Osama and Bagback Digital Solutions as an original open-source product:
 - Strict compliance with Clean-Room Development standards — zero copied source code or UI assets.
-- License: Apache License 2.0 publicly available on GitHub.
+- License: MIT License publicly available on GitHub.
 - Ecosystem: Proud component of the Bagback Digital Solutions technology suit.`,
 
     closeModal: 'Close',

@@ -12,17 +12,17 @@ COPY apps/web/ ./apps/web/
 RUN cd apps/web && npm run build
 
 # ═══════════════════════════════════════════════════
-# Stage 2: Build Node.js Backend
+# Stage 2: Build Node.js Backend & Monorepo Packages
 # ═══════════════════════════════════════════════════
 FROM node:20-alpine AS backend-builder
 
 WORKDIR /build
 
-COPY apps/server/package.json ./
+COPY package.json package-lock.json ./
+COPY packages/ ./packages/
+COPY apps/server/ ./apps/server/
 RUN npm install
-
-COPY apps/server/ ./
-RUN npm run build
+RUN npx tsc --project packages/core && npx tsc --project packages/downloader-engine && cd apps/server && npm run build
 
 # ═══════════════════════════════════════════════════
 # Stage 3: Production Image
@@ -50,7 +50,7 @@ RUN useradd -m -u 1001 bagback
 
 WORKDIR /app
 
-COPY --from=backend-builder /build/dist ./dist
+COPY --from=backend-builder /build/apps/server/dist ./dist
 COPY --from=backend-builder /build/node_modules ./node_modules
 COPY --from=frontend-builder /build/apps/web/dist ./static
 

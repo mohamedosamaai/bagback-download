@@ -1,201 +1,140 @@
 <div align="center">
-
-  <!-- Animated Cyber Typing SVG Header -->
-  <a href="https://github.com/mohamedosamaai/bagback-download-showcase">
-    <img src="https://readme-typing-svg.demolab.com?font=Outfit&weight=600&size=24&duration=2500&pause=1000&color=06B6D4&center=true&vCenter=true&width=780&lines=Bagback+Download+Showcase;Universal+Media+and+Stream+Format+Extraction+Engine;React+19+%2B+Vite+6+%2B+TypeScript+%2B+yt--dlp;Sigstore+SLSA+Level+3+Provenance+Attested" alt="Bagback Download Typing Banner" />
-  </a>
-
-  <br/>
-
-  [![Live Platform](https://img.shields.io/badge/Live_Engine-download.bagbacktech.com-06B6D4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://download.bagbacktech.com)
-  [![Wikidata Authority](https://img.shields.io/badge/Wikidata-Q141252311-3399CC?style=for-the-badge&logo=wikidata&logoColor=white)](https://www.wikidata.org/wiki/Q141252311)
-  [![TypeScript](https://img.shields.io/badge/TypeScript-5.x_Strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-  [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-mohamedosamaai-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/mohamedosamaai)
-  [![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-mohamedosamaai-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mohamedosamaai)
-  [![Security Audit](https://img.shields.io/badge/Security_Audit-0_CVEs-10b981?style=for-the-badge&logo=securityscorecard&logoColor=white)](SECURITY.md)
-  [![SLSA Level 3](https://img.shields.io/badge/SLSA-Level_3_Attested-7C3AED?style=for-the-badge&logo=sigstore&logoColor=white)](https://slsa.dev)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
-
-  <br/>
-
-  <p align="center">
-    <b>Enterprise-Grade Universal Media & Stream Format Extraction Engine</b><br/>
-    <i>Mohamed Osama (Dubai, UAE) • Bagback Digital Solutions (CR: 218773, Tax ID: 757-139-248, Cairo, Egypt)</i>
+  <img src="https://raw.githubusercontent.com/mohamedosamaai/bagback-download/main/apps/web/public/apple-icon.png" alt="Bagback Download Logo" width="120" height="120" />
+  
+  # Bagback Download 🚀
+  **Free, Open-Source Universal Media & File Download Manager**
+  
+  <p>
+    <a href="https://download.bagbacktech.com"><b>Website</b></a> •
+    <a href="#features"><b>Features</b></a> •
+    <a href="#installation"><b>Installation</b></a> •
+    <a href="#browser-extension"><b>Extension</b></a>
   </p>
-
 </div>
 
 ---
 
-## 🌟 Executive Overview & Purpose
+## 🌟 About The Project
 
-**Bagback Download Showcase** is an enterprise-grade, open-source universal media extraction and streaming file manager monorepo. It utilizes native `yt-dlp` binary integrations and real-time Server-Sent Events (SSE) while keeping operations strictly in-memory and temporary storage, ensuring zero residual data retention.
+**Bagback Download** is a modern, blazing-fast, and open-source universal downloader built to help users download videos, audio, and media from over 1,000 supported platforms (YouTube, TikTok, Instagram, X/Twitter, Facebook, etc.). 
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       BAGBACK DOWNLOAD SHOWCASE MONOREPO                        │
-│   🚀 Native yt-dlp Process Pool       ⚡ Real-Time Server-Sent Events (SSE)     │
-│   🎧 Lossless Audio Transcoding       📱 Offline-Ready React 19 PWA Client      │
-│   🔒 POSIX Isolated Sandbox (0o700)   🛡️ Sigstore SLSA Level 3 Provenance       │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Built with love by [Bagback Digital Solutions](https://bagbacktech.com) & [Mohamed Osama](https://mohamedosama.me) under a strict **Clean-Room Engineering** policy. It guarantees 100% privacy with zero tracking, telemetry, or invasive ads.
 
-### 🎯 Core Capabilities
-- 🚀 **Universal Stream Extraction:** Multi-platform media URL parsing, format selection, and adaptive bitrate streaming via `yt-dlp`.
-- ⚡ **Real-Time Job Telemetry (SSE):** Push-based download progression with 0 polling overhead directly to connected web clients.
-- 🎧 **Lossless Audio Extraction:** Automated FFmpeg audio pipeline extracting crystal-clear MP3, AAC, and WAV audio streams.
-- 📱 **Modern Progressive Web App (PWA):** React 19 + Vite 6 frontend with full Arabic (RTL) and English (LTR) bidirectional support.
-- 🔒 **Zero-Trust Ephemeral Storage:** POSIX isolated temporary runtimes (`0o700`) with deterministic cleanup post-delivery.
+## ✨ Features
 
----
+- **🌐 Universal Support:** Download from 1000+ websites.
+- **🎬 Video & Audio:** Extract MP3 audio or download video up to the highest available quality (4K/8K).
+- **⚡ Real-time Progress:** Live download progress via Server-Sent Events (SSE).
+- **🌍 Bilingual (AR/EN):** Full support for Arabic and English with seamless RTL/LTR layout switching.
+- **🌓 Dark/Light Mode:** Beautiful, responsive UI that adapts to your system preferences.
+- **🕰️ Local History:** Keeps track of your previous downloads directly in your browser using `localStorage`.
+- **☁️ Cloud Integration:** Send downloaded files directly to **Dropbox** to save your device's bandwidth.
+- **📱 PWA Ready:** Install the web app on your phone or desktop for an app-like experience.
+- **🧩 Browser Extension:** Official Chrome/Edge extension for 1-click downloads via Context Menu.
+- **🔒 Privacy First:** No cookies, no tracking. Files are temporary and deleted from the server immediately after download.
 
-## 🏗️ Architecture & Component Isolation
+## 🏗️ Architecture & Tech Stack
 
 ```mermaid
 graph TB
-    subgraph Client ["Frontend Container (React 19 + Vite 6)"]
-        PWA["Responsive Web & PWA App (apps/web)"]
-        UI["Bilingual RTL/LTR UI (Tailwind CSS)"]
-        SSEClient["SSE Stream Progress Listener"]
+    subgraph Client ["Client Layer"]
+        Web["Web Application (React + Vite PWA)"]
+        Ext["Browser Extension (Manifest V3)"]
     end
 
-    subgraph Edge ["Edge & Reverse Proxy"]
-        Caddy["Caddy 2 Edge Reverse Proxy (ACME TLS)"]
-        RateLimit["Express Rate Limiting & SSRF Filter"]
+    subgraph API ["Server Layer (Node.js / Express)"]
+        Router["Express API Router (/api)"]
+        Queue["Job Queue Manager & SSE Broadcaster"]
     end
 
-    subgraph Server ["Backend Core Engine (apps/server)"]
-        Router["Express 4 REST Router & Validation Gate"]
-        Worker["Async Binary Task Pool (yt-dlp + FFmpeg)"]
-        SSEServer["Real-Time SSE Event Streamer"]
+    subgraph Core ["Core Engine & Processing"]
+        Engine["Downloader Engine (@bagback-download/core)"]
+        YtDlp["yt-dlp Execution Wrapper"]
+        FFmpeg["FFmpeg Audio/Video Post-Processor"]
     end
 
-    subgraph Packages ["Modular Monorepo Workspaces"]
-        Core["@bagback-download/core (Contracts & Types)"]
-        Engine["@bagback-download/engine (Downloader Utilities)"]
+    subgraph Storage ["Storage & Buffer"]
+        Disk["Temporary Disk Buffer"]
     end
 
-    Client --> Caddy
-    Caddy --> RateLimit
-    RateLimit --> Router
-    Router --> Worker
-    Worker --> Engine
-    Engine --> Core
-    Worker -->|Push Progress| SSEServer
-    SSEServer -->|Stream Status| SSEClient
+    Web -->|Analyze & Download REST| Router
+    Ext -->|Context Menu Trigger| Web
+    Router --> Queue
+    Queue --> Engine
+    Engine --> YtDlp
+    Engine --> FFmpeg
+    YtDlp --> Disk
+    FFmpeg --> Disk
+    Disk -->|Stream File Output| Web
+    Queue -->|SSE Live Progress Stream| Web
 ```
 
----
+This project is a Monorepo containing:
+- **Frontend (`apps/web`):** React 18, Vite, TypeScript, Vanilla CSS (No external CSS libraries for maximum performance).
+- **Backend (`apps/server`):** Node.js, Express, `yt-dlp` (Core downloading engine), FFmpeg.
+- **Packages (`packages/core` & `packages/downloader-engine`):** Shared type contracts, normalization, and engine utilities.
+- **Extension (`apps/extension`):** Manifest V3 Chrome Extension.
 
-## 📊 System Vitals & Standards
+## 🚀 Getting Started (Local Development)
 
-<table align="center" width="100%">
-  <thead>
-    <tr>
-      <th align="left">Dimension</th>
-      <th align="center">Standard</th>
-      <th align="left">Verification Metric</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><b>⚡ Extraction Latency</b></td>
-      <td align="center"><code>&lt; 250ms</code></td>
-      <td>Pre-warmed headless process pool with zero disk writes</td>
-    </tr>
-    <tr>
-      <td><b>🛡️ Security Posture</b></td>
-      <td align="center"><code>0 CVEs</code></td>
-      <td>SSRF protection, strict domain whitelist, sanitized args</td>
-    </tr>
-    <tr>
-      <td><b>📐 Type Integrity</b></td>
-      <td align="center"><code>100% Strict</code></td>
-      <td>Shared workspace packages with strict TypeScript 5.x</td>
-    </tr>
-    <tr>
-      <td><b>🔒 Temp Directory Sandbox</b></td>
-      <td align="center"><code>0o700</code></td>
-      <td>POSIX isolated temporary runtime sandbox with instant cleanup</td>
-    </tr>
-    <tr>
-      <td><b>✍️ Git Authorship</b></td>
-      <td align="center"><code>100% Unified</code></td>
-      <td>All commits by <code>Mohamed Osama &lt;im@mohamedosama.me&gt;</code></td>
-    </tr>
-  </tbody>
-</table>
+### Prerequisites
+- Node.js (v18+)
+- Python 3 (For `yt-dlp`)
+- FFmpeg (Must be installed and in your system PATH)
 
----
-
-## 📁 Monorepo Structure
-
-```text
-bagback-download/
-├── .github/
-│   └── workflows/
-│       ├── ci.yml                    # Automated TypeScript verification & build
-│       ├── security.yml              # Gitleaks scanning & dependency audit
-│       ├── codeql.yml                # CodeQL static application security testing
-│       ├── dependabot-auto-merge.yml # Automated dependency updates
-│       └── publish-package.yml       # GitHub Packages & Sigstore SLSA attestation
-├── apps/
-│   ├── server/                       # Express 4 + yt-dlp execution engine
-│   └── web/                          # React 19 + Vite 6 PWA frontend client
-├── packages/
-│   ├── core/                         # Shared interfaces, types & contracts
-│   └── downloader-engine/            # Downloader abstraction & process management
-├── Dockerfile                        # Multi-stage container definition
-├── docker-compose.yml                # Local orchestration service
-├── package.json                      # Monorepo workspaces & security overrides
-└── README.md                         # Architecture showcase documentation
-```
-
----
-
-## 🚀 Quickstart Guide (Local Development)
-
-### 1. Prerequisites
-- **Node.js**: v20+
-- **Python**: 3.10+ (for `yt-dlp`)
-- **FFmpeg**: System PATH
-
-### 2. Project Initialization
-
+### 1. Clone the repository
 ```bash
-# Clone the showcase repository
-git clone https://github.com/mohamedosamaai/bagback-download-showcase.git
-cd bagback-download-showcase
+git clone https://github.com/mohamedosamaai/bagback-download.git
+cd bagback-download
+```
 
-# Install dependencies across all monorepo workspaces
+### 2. Setup the Backend
+```bash
+cd apps/server
 npm install
+npm run build
+npm start
 ```
+*The server will run on port 4000.*
 
-### 3. Launch Development Environments
+### 3. Setup the Frontend
+```bash
+cd ../web
+npm install
+npm run dev
+```
+*The frontend will run on port 5173.*
+
+## 🐳 Docker Deployment (Production)
+
+Deploying to production is incredibly easy with the provided `docker-compose.yml`. It builds a multi-stage Docker image containing Python, FFmpeg, Node.js, and serves the static frontend alongside the Express API.
 
 ```bash
-# Terminal 1: Backend API Server (:4000)
-npm run web:dev
-
-# Terminal 2: Frontend Web Client (:5173)
-npm run server:start
+docker compose up -d --build
 ```
+*The app will be accessible at port 4000. Use Nginx as a reverse proxy for SSL/TLS.*
+
+## 🧩 Browser Extension Installation
+
+1. Download the `bagback-extension.zip` or use the source code in `apps/extension`.
+2. Open Chrome/Edge and navigate to `chrome://extensions/`.
+3. Enable **Developer Mode** (top right corner).
+4. Click **Load unpacked** and select the extension folder.
+5. Right-click any video or link and choose **"Download with Bagback"**!
+
+## 🤝 Contributing
+
+Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📄 License
+
+Distributed under the **MIT License**. See `LICENSE` for more information.
 
 ---
-
-## 🏛️ Verified Authority & Accreditations
-
-- 🌐 **Wikidata Entity:** [`Q141252311`](https://www.wikidata.org/wiki/Q141252311)
-- 🏢 **Bagback Digital Solutions:** CR `218773` | Tax ID `757-139-248` (Cairo, Egypt)
-- 📍 **Founder & Lead Architect:** Mohamed Osama (Dubai, United Arab Emirates)
-- 🏆 **Dubai Chamber of Digital Economy:** Notable Contribution Award (`MeYYoRxN`)
-- ☁️ **Google Cloud:** Vertex AI Studio Practitioner ID `#24009731`
-- 📈 **Google Skillshop:** Conversion Rate Optimization Certification ID `#192682733`
-- 🎓 **Semrush Academy:** Technical SEO & Content Marketing ID `#807156`
-
----
-
-## 📜 License & Governance
-
-Distributed under the [MIT License](LICENSE).  
-Copyright © 2026 **Mohamed Osama** / **Bagback Digital Solutions**. All systems attested SLSA Level 3.
+*Built with ❤️ by Bagback Digital Solutions*

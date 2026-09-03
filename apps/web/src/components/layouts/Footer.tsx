@@ -14,7 +14,7 @@ export function Footer({ setActiveModal, t }: FooterProps) {
           <a href="https://bagbacktech.com" target="_blank" rel="noreferrer">
             Bagback Digital Solutions
           </a>{' '}
-          · Apache 2.0 License
+          · MIT License
         </div>
 
         <div className="footer-links">

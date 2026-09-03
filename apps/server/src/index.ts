@@ -8,6 +8,7 @@ import os from 'os';
 import https from 'https';
 import http from 'http';
 import rateLimit from 'express-rate-limit';
+import type { Job, FormatInfo } from '@bagback-download/core';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -15,82 +16,15 @@ const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.join(os.tmpdir(), 'bagback
 const STATIC_DIR = process.env.STATIC_DIR || path.join(__dirname, '..', 'static');
 
 if (!fs.existsSync(DOWNLOAD_DIR)) {
-  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true, mode: 0o700 });
-}
-
-interface Job {
-  id: string;
-  url: string;
-  status: 'queued' | 'running' | 'completed' | 'failed';
-  progress: number;
-  title?: string;
-  format?: string;
-  filePath?: string;
-  fileName?: string;
-  fileSize?: number;
-  error?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface FormatInfo {
-  id: string;
-  ext: string;
-  resolution?: string;
-  fps?: number;
-  filesize?: number;
-  vcodec?: string;
-  acodec?: string;
+  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 }
 
 const jobs = new Map<string, Job>();
 
-// ─── Rate Limiters ───────────────────────────────────────────────────────────
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 120, // Limit each IP to 120 requests per 15 minutes
-  message: { error: 'Too many requests from this IP, please try again after 15 minutes' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const fileLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 60,
-  message: { error: 'Too many file operations, please try again later' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.set('trust proxy', 1);
-
-// ─── CORS Configuration ───────────────────────────────────────────────────────
-const defaultAllowedOrigins = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:4000',
-  'https://download.bagbacktech.com',
-  'https://bagbacktech.com',
-];
-
-const configuredOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
-  : defaultAllowedOrigins;
-
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || configuredOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, false);
-    }
-  },
+  origin: process.env.CORS_ORIGIN || '*',
   methods: ['GET', 'POST', 'DELETE'],
-  credentials: true,
 }));
-
 app.use(express.json());
 
 let sseClients: { id: number; res: Response }[] = [];
@@ -120,9 +54,8 @@ function checkProxy(proxyStr: string): Promise<string | null> {
   return new Promise((resolve) => {
     const parts = proxyStr.split(':');
     if (parts.length !== 2) return resolve(null);
-    const host = parts[0].trim();
+    const host = parts[0];
     const port = parseInt(parts[1], 10);
-    if (!host || isNaN(port) || port <= 0 || port > 65535) return resolve(null);
 
     const req = http.request({
       host,
@@ -179,7 +112,9 @@ function normalizeFormat(format: string): string {
   if (format === '480p') return 'bestvideo[height<=480]+bestaudio/best[height<=480]/b/best';
   if (format === '360p') return 'bestvideo[height<=360]+bestaudio/best[height<=360]/b/best';
   if (format === 'bestaudio/best' || format === 'mp3') return 'bestaudio/best';
-  if (format && format !== 'bestvideo+bestaudio/best') return format;
+  if (format && format !== 'bestvideo+bestaudio/best' && format !== 'best') {
+    return `${format}+ba/b/${format}/best`;
+  }
   return 'b/bv*+ba/best';
 }
 
@@ -203,6 +138,15 @@ function getYtDlpBinary(): string {
   return binaryName;
 }
 
+function hasFfmpeg(): boolean {
+  try {
+    const res = spawnSync('ffmpeg', ['-version']);
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 function ytdlp(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const binary = getYtDlpBinary();
@@ -211,9 +155,6 @@ function ytdlp(args: string[]): Promise<string> {
     let stderr = '';
     proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
     proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-    proc.on('error', (err) => {
-      reject(err);
-    });
     proc.on('close', (code) => {
       if (code === 0) resolve(stdout.trim());
       else reject(new Error(stderr.trim() || `${binary} exited with code ${code}`));
@@ -221,29 +162,19 @@ function ytdlp(args: string[]): Promise<string> {
   });
 }
 
-function isYouTubeUrl(urlStr: string): boolean {
-  try {
-    const parsed = new URL(urlStr.startsWith('http') ? urlStr : `https://${urlStr}`);
-    const host = parsed.hostname.toLowerCase();
-    return host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be' || host.endsWith('.youtu.be');
-  } catch {
-    return false;
-  }
+function isYouTubeUrl(url: string): boolean {
+  return /youtube\.com|youtu\.be/i.test(url);
 }
 
-function sanitizeUrl(rawUrl: string): string | null {
-  try {
-    const trimmed = rawUrl.trim();
-    const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-    const parsed = new URL(withProtocol);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null;
-    }
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-}
+// ─── Rate Limiter ───────────────────────────────────────────────────────────
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 120, // Limit each IP to 120 requests per 15 minutes
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.set('trust proxy', 1);
 
 // ─── Routes ───────────────────────────────────────────────────────────────
 
@@ -257,16 +188,15 @@ app.get('/api/health', async (_req: Request, res: Response) => {
 });
 
 app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
-  const { url: rawUrl } = req.body as { url?: string };
-  if (!rawUrl || typeof rawUrl !== 'string') {
+  let { url } = req.body as { url?: string };
+  if (!url || typeof url !== 'string') {
     res.status(400).json({ error: 'Invalid URL' });
     return;
   }
 
-  const url = sanitizeUrl(rawUrl);
-  if (!url) {
-    res.status(400).json({ error: 'Invalid URL format' });
-    return;
+  url = url.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    url = 'https://' + url;
   }
 
   // 1. YouTube OEmbed First (instant metadata)
@@ -375,21 +305,20 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
 });
 
 app.post('/api/download', apiLimiter, (req: Request, res: Response) => {
-  const { url: rawUrl, format = 'bestvideo+bestaudio/best', audioOnly = false } = req.body as {
+  let { url, format = 'bestvideo+bestaudio/best', audioOnly = false } = req.body as {
     url?: string;
     format?: string;
     audioOnly?: boolean;
   };
 
-  if (!rawUrl || typeof rawUrl !== 'string') {
+  if (!url || typeof url !== 'string') {
     res.status(400).json({ error: 'Invalid URL' });
     return;
   }
 
-  const url = sanitizeUrl(rawUrl);
-  if (!url) {
-    res.status(400).json({ error: 'Invalid URL format' });
-    return;
+  url = url.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    url = 'https://' + url;
   }
 
   const id = uuidv4();
@@ -410,17 +339,19 @@ app.post('/api/download', apiLimiter, (req: Request, res: Response) => {
   res.json({ id });
 });
 
-function hasFfmpeg(): boolean {
-  try {
-    const res = spawnSync('ffmpeg', ['-version']);
-    return res.status === 0;
-  } catch {
-    return false;
-  }
-}
-
 async function runDownload(id: string, url: string, format: string, audioOnly: boolean) {
   updateJob(id, { status: 'running', progress: 5 });
+
+  // Auto-fail if stuck at 5% for more than 2 minutes
+  const jobTimeout = setTimeout(() => {
+    const currentJob = jobs.get(id);
+    if (currentJob && currentJob.status === 'running' && currentJob.progress <= 5) {
+      updateJob(id, {
+        status: 'failed',
+        error: 'Download timed out — yt-dlp may be unavailable or URL is blocked'
+      });
+    }
+  }, 2 * 60 * 1000);
 
   const realFormat = normalizeFormat(format);
   const outputTemplate = path.join(DOWNLOAD_DIR, `${id}-%(title).100s.%(ext)s`);
@@ -434,6 +365,9 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
       '--fragment-retries', '10',
       '--file-access-retries', '5',
       '--no-playlist',
+      '--no-warnings',
+      '--geo-bypass',
+      '--socket-timeout', '30',
       '--progress',
       '--newline',
     ];
@@ -453,7 +387,7 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
         );
       } else {
         base.push(
-          '-f', 'bestaudio/best',
+          '-f', 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio',
           '-o', outputTemplate,
           url
         );
@@ -478,8 +412,9 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
     return base;
   };
 
-  const executeYtDlp = (args: string[]): Promise<boolean> => {
+  const executeYtDlp = (args: string[]): Promise<{ success: boolean; lastError: string }> => {
     return new Promise((resolve) => {
+      let lastStderr = '';
       const binary = getYtDlpBinary();
       const proc = spawn(binary, args, {
         env: { ...process.env, PATH: (process.env.PATH || '') + ':/usr/local/bin:/usr/bin' },
@@ -489,7 +424,9 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
         const text = data.toString();
         const lines = text.split(/[\r\n]+/);
         for (const line of lines) {
-          const progMatch = line.match(/(?:\[download\])?\s*([\d\.]+)%/i);
+          const progMatch = line.match(/(?:\[download\])?\s*([\d.]+)%/) ||
+                            line.match(/(\d+\.?\d*)%\s+of/) ||
+                            line.match(/(\d+\.?\d*)\s*%/);
           if (progMatch) {
             const p = parseFloat(progMatch[1]);
             if (!isNaN(p) && p >= 0 && p <= 100) {
@@ -502,21 +439,26 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
       };
 
       proc.stdout.on('data', handleData);
-      proc.stderr.on('data', handleData);
+      proc.stderr.on('data', (data: Buffer) => {
+        lastStderr = data.toString().slice(-500);
+        handleData(data);
+      });
 
       proc.on('error', (err) => {
         console.error('[yt-dlp spawn error]', err);
-        resolve(false);
+        resolve({ success: false, lastError: err.message });
       });
 
       proc.on('close', (code) => {
-        resolve(code === 0);
+        resolve({ success: code === 0, lastError: lastStderr });
       });
     });
   };
 
   // Step 1: Try direct download first
-  let success = await executeYtDlp(buildArgs());
+  let result = await executeYtDlp(buildArgs());
+  let success = result.success;
+  let lastError = result.lastError;
 
   // Step 2: If direct download failed on YouTube, query fast verified working proxies
   if (!success && isYouTubeUrl(url)) {
@@ -524,13 +466,17 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
     try {
       const verifiedProxies = (await fetchVerifiedProxies()).slice(0, 3);
       for (const proxy of verifiedProxies) {
-        success = await executeYtDlp(buildArgs(proxy));
+        result = await executeYtDlp(buildArgs(proxy));
+        success = result.success;
+        lastError = result.lastError;
         if (success) break;
       }
     } catch (e) {
       console.warn('[Proxy fallback error]', e);
     }
   }
+
+  clearTimeout(jobTimeout);
 
   const files = fs.readdirSync(DOWNLOAD_DIR).filter((f) => f.startsWith(id));
   const validFile = files.find((f) => {
@@ -555,11 +501,14 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
   } else if (success) {
     updateJob(id, { status: 'completed', progress: 100 });
   } else {
-    updateJob(id, { status: 'failed', error: 'Download could not be completed' });
+    updateJob(id, {
+      status: 'failed',
+      error: lastError.trim() || 'Download could not be completed'
+    });
   }
 }
 
-app.get('/api/jobs', apiLimiter, (_req: Request, res: Response) => {
+app.get('/api/jobs', (_req: Request, res: Response) => {
   const list = Array.from(jobs.values()).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
@@ -597,14 +546,8 @@ app.get('/api/jobs/stream', (req: Request, res: Response) => {
   });
 });
 
-app.get('/api/jobs/:id', apiLimiter, (req: Request, res: Response) => {
-  const jobId = req.params.id;
-  if (!jobId || !/^[a-zA-Z0-9_-]+$/.test(jobId)) {
-    res.status(400).json({ error: 'Invalid Job ID format' });
-    return;
-  }
-
-  const job = jobs.get(jobId);
+app.get('/api/jobs/:id', (req: Request, res: Response) => {
+  const job = jobs.get(req.params.id);
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
     return;
@@ -612,33 +555,19 @@ app.get('/api/jobs/:id', apiLimiter, (req: Request, res: Response) => {
   res.json(job);
 });
 
-app.get('/api/jobs/:id/file', fileLimiter, (req: Request, res: Response) => {
-  const jobId = req.params.id;
-  if (!jobId || !/^[a-zA-Z0-9_-]+$/.test(jobId)) {
-    res.status(400).json({ error: 'Invalid Job ID format' });
-    return;
-  }
-
-  const job = jobs.get(jobId);
+app.get('/api/jobs/:id/file', (req: Request, res: Response) => {
+  const job = jobs.get(req.params.id);
   if (!job || job.status !== 'completed' || !job.filePath) {
     res.status(404).json({ error: 'File not ready' });
     return;
   }
-
-  const safeDirPath = path.resolve(DOWNLOAD_DIR);
-  const resolvedFilePath = path.resolve(job.filePath);
-  if (!resolvedFilePath.startsWith(safeDirPath)) {
-    res.status(403).json({ error: 'Access denied: invalid file path' });
-    return;
-  }
-
-  if (!fs.existsSync(resolvedFilePath)) {
+  if (!fs.existsSync(job.filePath)) {
     res.status(404).json({ error: 'File not found on disk' });
     return;
   }
 
-  const stat = fs.statSync(resolvedFilePath);
-  const ext = path.extname(resolvedFilePath).slice(1);
+  const stat = fs.statSync(job.filePath);
+  const ext = path.extname(job.filePath).slice(1);
   const mimeMap: Record<string, string> = {
     mp4: 'video/mp4',
     mp3: 'audio/mpeg',
@@ -648,48 +577,51 @@ app.get('/api/jobs/:id/file', fileLimiter, (req: Request, res: Response) => {
   };
   const contentType = mimeMap[ext] || 'application/octet-stream';
 
-  const safeFileName = (job.fileName || 'download').replace(/[\r\n"/\\]/g, '_');
   res.setHeader('Content-Type', contentType);
   res.setHeader('Content-Length', stat.size);
   res.setHeader(
     'Content-Disposition',
-    `attachment; filename="${encodeURIComponent(safeFileName)}"`,
+    `attachment; filename="${encodeURIComponent(job.fileName || 'download')}"`,
   );
-  fs.createReadStream(resolvedFilePath).pipe(res);
+  fs.createReadStream(job.filePath).pipe(res);
 });
 
-app.delete('/api/jobs/:id', fileLimiter, (req: Request, res: Response) => {
-  const jobId = req.params.id;
-  if (!jobId || !/^[a-zA-Z0-9_-]+$/.test(jobId)) {
-    res.status(400).json({ error: 'Invalid Job ID format' });
-    return;
+app.delete('/api/jobs', (_req: Request, res: Response) => {
+  for (const [id, job] of jobs.entries()) {
+    if (job.filePath && fs.existsSync(job.filePath)) {
+      try {
+        fs.unlinkSync(job.filePath);
+      } catch (e) {
+        console.error(`[Delete All] Error removing ${job.filePath}`, e);
+      }
+    }
   }
+  jobs.clear();
+  broadcastJobs();
+  res.json({ cleared: true });
+});
 
-  const job = jobs.get(jobId);
+app.delete('/api/jobs/:id', (req: Request, res: Response) => {
+  const job = jobs.get(req.params.id);
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
     return;
   }
-
-  if (job.filePath) {
-    const safeDirPath = path.resolve(DOWNLOAD_DIR);
-    const resolvedFilePath = path.resolve(job.filePath);
-    if (resolvedFilePath.startsWith(safeDirPath) && fs.existsSync(resolvedFilePath)) {
-      try {
-        fs.unlinkSync(resolvedFilePath);
-      } catch (err) {
-        console.error(`[Delete] Error unlinking file ${resolvedFilePath}`, err);
-      }
+  if (job.filePath && fs.existsSync(job.filePath)) {
+    try {
+      fs.unlinkSync(job.filePath);
+    } catch (e) {
+      console.error(`[Delete Job] Error removing ${job.filePath}`, e);
     }
   }
-
-  jobs.delete(jobId);
+  jobs.delete(req.params.id);
+  broadcastJobs();
   res.json({ deleted: true });
 });
 
 if (fs.existsSync(STATIC_DIR)) {
   app.use(express.static(STATIC_DIR));
-  app.get('*', apiLimiter, (_req: Request, res: Response) => {
+  app.get('*', (_req: Request, res: Response) => {
     const indexPath = path.join(STATIC_DIR, 'index.html');
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
@@ -711,15 +643,11 @@ setInterval(() => {
     const jobAge = now - new Date(job.createdAt).getTime();
     if (jobAge > MAX_AGE) {
       console.log(`[Cleanup] Deleting old job ${id}`);
-      if (job.filePath) {
-        const safeDirPath = path.resolve(DOWNLOAD_DIR);
-        const resolvedFilePath = path.resolve(job.filePath);
-        if (resolvedFilePath.startsWith(safeDirPath) && fs.existsSync(resolvedFilePath)) {
-          try {
-            fs.unlinkSync(resolvedFilePath);
-          } catch (e) {
-            console.error(`[Cleanup] Error deleting file ${resolvedFilePath}`, e);
-          }
+      if (job.filePath && fs.existsSync(job.filePath)) {
+        try {
+          fs.unlinkSync(job.filePath);
+        } catch (e) {
+          console.error(`[Cleanup] Error deleting file ${job.filePath}`, e);
         }
       }
       jobs.delete(id);
