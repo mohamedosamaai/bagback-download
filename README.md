@@ -10,7 +10,7 @@
   [![Live Platform](https://img.shields.io/badge/Live_Engine-download.bagbacktech.com-06B6D4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://download.bagbacktech.com)
   [![Wikidata Authority](https://img.shields.io/badge/Wikidata-Q141252311-3399CC?style=for-the-badge&logo=wikidata&logoColor=white)](https://www.wikidata.org/wiki/Q141252311)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5.x_Strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-  [![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-mohamedosama-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mohamedosama)
+  [![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-mohamedosamaai-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mohamedosamaai)
   [![Security Audit](https://img.shields.io/badge/Security_Audit-0_CVEs-10b981?style=for-the-badge&logo=securityscorecard&logoColor=white)](SECURITY.md)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
