@@ -478,7 +478,7 @@ function JobCard({
         <div className="progress-bar-bg">
           <div
             className={`progress-bar-fill ${job.status === 'running' ? 'animate-glow' : ''}`}
-            style={{ width: `${Math.max(5, Math.min(100, job.progress))}%` }}
+            style={{ width: `${Math.min(100, Math.max(0, job.progress))}%` }}
           />
         </div>
         <div className="progress-meta">
@@ -490,11 +490,14 @@ function JobCard({
           <span className="file-size">
             {isComplete && job.fileSize
               ? formatSize(job.fileSize)
-              : job.error
-              ? job.error.slice(0, 50)
               : ''}
           </span>
         </div>
+        {job.status === 'failed' && job.error && (
+          <div className="job-error-msg" style={{ marginTop: '6px', fontSize: '12px', color: '#f85149', lineHeight: 1.4 }}>
+            {job.error}
+          </div>
+        )}
       </div>
 
       {isComplete && (

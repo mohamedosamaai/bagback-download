@@ -125,6 +125,30 @@ function isYouTubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/i.test(url);
 }
 
+function sanitizeErrorMessage(rawError: string, _url: string): string {
+  const err = (rawError || '').toLowerCase();
+  if (err.includes('sign in to confirm') || err.includes('not a bot') || err.includes('bot')) {
+    return 'هذا المحتوى محمي بواسطة المزود لمنع التنزيل الآلي. يرجى تجربة جودة أخرى أو المحاولة لاحقاً.';
+  }
+  if (err.includes('private video') || err.includes('this video is private')) {
+    return 'هذا المحتوى خاص ولا يمكن الوصول إليه.';
+  }
+  if (err.includes('unavailable') || err.includes('not found') || err.includes('404')) {
+    return 'المحتوى غير متاح أو تم حذفه من المنصة.';
+  }
+  if (err.includes('copyright') || err.includes('blocked')) {
+    return 'هذا المحتوى محظور بسبب حقوق النشر أو القيود الجغرافية.';
+  }
+  if (err.includes('timed out') || err.includes('timeout') || err.includes('econnrefused')) {
+    return 'انتهت مهلة الاتصال بالخادم المزود. يرجى إعادة المحاولة.';
+  }
+  if (rawError && rawError.trim().length > 0 && rawError.length < 120 && !rawError.includes('\n') && !rawError.includes('Traceback')) {
+    return rawError.trim().replace(/^ERROR:\s*/i, '');
+  }
+  return 'تعذر إتمام التحميل. يرجى التأكد من أن الرابط سليم ومتاح للعامة.';
+}
+
+
 // ─── Rate Limiter ───────────────────────────────────────────────────────────
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -158,22 +182,67 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
     url = 'https://' + url;
   }
 
-  // 1. YouTube OEmbed Probe for fast resilient metadata
-  let fallbackOembedData: any = null;
-  if (isYouTubeUrl(url)) {
+  // 1. Universal Media Extraction for Non-YouTube Platforms (SoundCloud, TikTok, Instagram, Twitter/X, Facebook, etc.)
+  if (!isYouTubeUrl(url)) {
     try {
-      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-      const response = await fetch(oembedUrl);
-      if (response.ok) {
-        fallbackOembedData = await response.json();
-      }
-    } catch (e) {
-      console.warn('[YouTube OEmbed probe failed]', e);
+      const args = [
+        ...getCookiesArg(),
+        '--dump-json',
+        '--no-playlist',
+        '--flat-playlist',
+      ];
+      const proxy = getCustomProxy();
+      if (proxy) args.push('--proxy', proxy);
+      args.push(url);
+
+      const raw = await ytdlp(args);
+      const info = JSON.parse(raw);
+
+      const formats: FormatInfo[] = (info.formats || [])
+        .filter((f: any) => f.ext && (f.vcodec !== 'none' || f.acodec !== 'none'))
+        .map((f: any) => ({
+          id: f.format_id,
+          ext: f.ext,
+          resolution: f.resolution || (f.height ? `${f.height}p` : undefined),
+          fps: f.fps,
+          filesize: f.filesize,
+          vcodec: f.vcodec,
+          acodec: f.acodec,
+        }))
+        .slice(0, 20);
+
+      res.json({
+        title: info.title || 'Media Download',
+        thumbnail: info.thumbnail,
+        duration: info.duration,
+        uploader: info.uploader,
+        formats: formats.length > 0 ? formats : [
+          { id: 'best', ext: 'mp4', resolution: 'Best Available' },
+          { id: 'bestaudio/best', ext: 'mp3', resolution: 'Audio MP3' },
+        ],
+      });
+      return;
+    } catch (err: any) {
+      console.warn('[Universal yt-dlp analyze failed]', err?.message || err);
+      res.status(422).json({ error: sanitizeErrorMessage(err?.message || '', url) });
+      return;
     }
   }
 
-  // 2. Multi-strategy extraction (ios,web -> web,mweb -> android,web)
-  const clientStrategies = ['ios,web', 'web,mweb', 'android,web'];
+  // 2. YouTube Specific: OEmbed Probe for fast resilient metadata
+  let fallbackOembedData: any = null;
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const response = await fetch(oembedUrl);
+    if (response.ok) {
+      fallbackOembedData = await response.json();
+    }
+  } catch (e) {
+    console.warn('[YouTube OEmbed probe failed]', e);
+  }
+
+  // 3. YouTube Multi-strategy extraction (android,web -> web,mweb -> ios,web)
+  const clientStrategies = ['android,web', 'web,mweb', 'ios,web'];
   for (const clientStrategy of clientStrategies) {
     try {
       const args = [
@@ -218,7 +287,7 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
     }
   }
 
-  // 3. Resilient fallback if yt-dlp encounters bot protection but oembed data is available
+  // 4. Resilient fallback if yt-dlp encounters bot protection but oembed data is available
   if (fallbackOembedData) {
     res.json({
       title: fallbackOembedData.title,
@@ -274,15 +343,15 @@ app.post('/api/download', apiLimiter, (req: Request, res: Response) => {
 });
 
 async function runDownload(id: string, url: string, format: string, audioOnly: boolean) {
-  updateJob(id, { status: 'running', progress: 5 });
+  updateJob(id, { status: 'running', progress: 0 });
 
-  // Auto-fail if stuck at 5% for more than 2 minutes
+  // Auto-fail if stuck at 0% for more than 2 minutes
   const jobTimeout = setTimeout(() => {
     const currentJob = jobs.get(id);
-    if (currentJob && currentJob.status === 'running' && currentJob.progress <= 5) {
+    if (currentJob && currentJob.status === 'running' && currentJob.progress === 0) {
       updateJob(id, {
         status: 'failed',
-        error: 'Download timed out — yt-dlp may be unavailable or URL is blocked'
+        error: 'انتهت مهلة التحميل — قد يكون الرابط محظوراً أو المزود غير متاح'
       });
     }
   }, 2 * 60 * 1000);
@@ -290,11 +359,18 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
   const realFormat = normalizeFormat(format);
   const outputTemplate = path.join(DOWNLOAD_DIR, `${id}-%(title).100s.%(ext)s`);
   const ffmpegAvailable = hasFfmpeg();
+  const isYt = isYouTubeUrl(url);
 
-  // Build yt-dlp arguments with multi-strategy support
-  const buildArgs = (clientStrategy: string = 'ios,web') => {
-    const base: string[] = [
-      '--extractor-args', `youtube:player_client=${clientStrategy}`,
+  // Build yt-dlp arguments with universal support
+  const buildArgs = (clientStrategy?: string) => {
+    const base: string[] = [];
+
+    // YouTube specific extractor args
+    if (isYt && clientStrategy) {
+      base.push('--extractor-args', `youtube:player_client=${clientStrategy}`);
+    }
+
+    base.push(
       ...getCookiesArg(),
       '--retries', '5',
       '--fragment-retries', '5',
@@ -305,7 +381,7 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
       '--socket-timeout', '30',
       '--progress',
       '--newline',
-    ];
+    );
 
     const proxy = getCustomProxy();
     if (proxy) {
@@ -360,13 +436,13 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
         const text = data.toString();
         const lines = text.split(/[\r\n]+/);
         for (const line of lines) {
-          const progMatch = line.match(/(?:\[download\])?\s*([\d.]+)%/) ||
-                            line.match(/(\d+\.?\d*)%\s+of/) ||
+          const progMatch = line.match(/(?:\[download\])?\s*([\d.]+)%/i) ||
+                            line.match(/(\d+\.?\d*)%\s+of/i) ||
                             line.match(/(\d+\.?\d*)\s*%/);
           if (progMatch) {
             const p = parseFloat(progMatch[1]);
             if (!isNaN(p) && p >= 0 && p <= 100) {
-              updateJob(id, { progress: Math.min(99, Math.max(5, p)) });
+              updateJob(id, { progress: Math.min(99, Math.floor(p)) });
             }
           } else if (/\[(Merger|ExtractAudio|Fixup|VideoConvertor)\]/i.test(line)) {
             updateJob(id, { progress: 95 });
@@ -391,22 +467,25 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
     });
   };
 
-  // Step 1: Execute primary download with ios,web strategy
-  let result = await executeYtDlp(buildArgs('ios,web'));
-  let success = result.success;
-  let lastError = result.lastError;
-
-  // Step 2: If primary failed on YouTube, retry with secondary strategies (web,mweb -> android,web)
-  if (!success && isYouTubeUrl(url)) {
-    console.warn('[Primary download strategy failed, retrying with fallback client strategy]');
-    const fallbackStrategies = ['web,mweb', 'android,web'];
-    for (const strat of fallbackStrategies) {
-      result = await executeYtDlp(buildArgs(strat));
-      success = result.success;
-      lastError = result.lastError;
-      if (success) break;
+  let result;
+  if (!isYt) {
+    // Universal platforms: single clean high-speed execution
+    result = await executeYtDlp(buildArgs());
+  } else {
+    // YouTube: primary strategy android,web
+    result = await executeYtDlp(buildArgs('android,web'));
+    if (!result.success) {
+      console.warn('[YouTube primary download strategy failed, retrying with fallback strategy]');
+      const fallbackStrategies = ['web,mweb', 'ios,web'];
+      for (const strat of fallbackStrategies) {
+        result = await executeYtDlp(buildArgs(strat));
+        if (result.success) break;
+      }
     }
   }
+
+  const success = result.success;
+  const lastError = result.lastError;
 
   clearTimeout(jobTimeout);
 
@@ -435,7 +514,7 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
   } else {
     updateJob(id, {
       status: 'failed',
-      error: lastError.trim() || 'Download could not be completed'
+      error: sanitizeErrorMessage(lastError, url),
     });
   }
 }
