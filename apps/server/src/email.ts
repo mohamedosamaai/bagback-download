@@ -17,8 +17,13 @@ export async function sendDownloadReceiptEmail(opts: SendDownloadReceiptEmailOpt
     const SMTP_HOST = process.env.SMTP_HOST || 'mail.elitk.com';
     const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
     const SMTP_USER = process.env.SMTP_USER || 'download@bagbacktech.com';
-    const SMTP_PASS = process.env.SMTP_PASS || 'Bagback2026@Admin';
+    const SMTP_PASS = process.env.SMTP_PASS;
     const FROM_EMAIL = process.env.SMTP_FROM || 'download@bagbacktech.com';
+
+    if (!SMTP_PASS) {
+      console.warn('[download-email] SMTP_PASS not set in environment, skipping receipt');
+      return false;
+    }
 
     const transporter = nodemailer.createTransport({
       host: SMTP_HOST,
