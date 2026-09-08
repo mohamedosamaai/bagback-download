@@ -132,6 +132,15 @@ Contributions are what make the open-source community such an amazing place to l
 4. Push to the Branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
+## 🏛️ Open-Source Heritage & Acknowledgments
+
+Bagback Download stands on the shoulders of giants within the open-source multimedia ecosystem:
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp):** The universal media extraction core.
+- **[Seal](https://github.com/JunkFood02/Seal):** The renowned media downloader for Android created by JunkFood. We deeply respect and acknowledge Seal's pioneering design and UX workflows in universal media management.
+- **[FFmpeg](https://ffmpeg.org):** The essential multimedia processing suite powering media format multiplexing and conversion.
+
+We champion open collaboration, software transparency, and rigorous open-source licensing compliance.
+
 ## 📄 License
 
 Distributed under the **MIT License**. See `LICENSE` for more information.

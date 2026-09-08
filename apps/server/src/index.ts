@@ -50,61 +50,20 @@ function updateJob(id: string, patch: Partial<Job>) {
   broadcastJobs();
 }
 
-function checkProxy(proxyStr: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const parts = proxyStr.split(':');
-    if (parts.length !== 2) return resolve(null);
-    const host = parts[0];
-    const port = parseInt(parts[1], 10);
-
-    const req = http.request({
-      host,
-      port,
-      method: 'CONNECT',
-      path: 'www.google.com:443',
-      timeout: 1200,
-    });
-
-    req.on('connect', (_res, socket) => {
-      socket.destroy();
-      resolve(proxyStr);
-    });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(null);
-    });
-    req.end();
-  });
+function getCustomProxy(): string | undefined {
+  return process.env.YTDLP_PROXY || process.env.HTTP_PROXY || process.env.HTTPS_PROXY || undefined;
 }
 
-async function fetchVerifiedProxies(): Promise<string[]> {
-  return new Promise((resolve) => {
-    const req = https.get(
-      'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=1500&country=all&ssl=all&anonymity=all',
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', async () => {
-          const list = data
-            .split(/[\r\n]+/)
-            .map((s) => s.trim())
-            .filter((line) => line.includes(':'))
-            .slice(0, 40);
-
-          const checks = list.map(checkProxy);
-          const results = await Promise.all(checks);
-          const working = results.filter((p): p is string => Boolean(p));
-          resolve(working);
-        });
-      }
-    );
-    req.on('error', () => resolve([]));
-    req.setTimeout(3000, () => {
-      req.destroy();
-      resolve([]);
-    });
-  });
+function getCookiesArg(): string[] {
+  const customPath = process.env.YTDLP_COOKIES_PATH;
+  if (customPath && fs.existsSync(customPath)) {
+    return ['--cookies', customPath];
+  }
+  const defaultPath = path.join(process.cwd(), 'cookies.txt');
+  if (fs.existsSync(defaultPath)) {
+    return ['--cookies', defaultPath];
+  }
+  return [];
 }
 
 function normalizeFormat(format: string): string {
@@ -199,80 +158,38 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
     url = 'https://' + url;
   }
 
-  // 1. YouTube OEmbed First (instant metadata)
+  // 1. YouTube OEmbed Probe for fast resilient metadata
+  let fallbackOembedData: any = null;
   if (isYouTubeUrl(url)) {
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
       const response = await fetch(oembedUrl);
       if (response.ok) {
-        const oembed: any = await response.json();
-        res.json({
-          title: oembed.title,
-          thumbnail: oembed.thumbnail_url,
-          uploader: oembed.author_name,
-          duration: 0,
-          formats: [
-            { id: 'bestvideo+bestaudio/best', ext: 'mp4', resolution: '1080p (Best)' },
-            { id: '720p', ext: 'mp4', resolution: '720p HD' },
-            { id: '480p', ext: 'mp4', resolution: '480p SD' },
-            { id: 'bestaudio/best', ext: 'mp3', resolution: 'Audio MP3' },
-          ],
-        });
-        return;
+        fallbackOembedData = await response.json();
       }
     } catch (e) {
-      console.warn('[YouTube OEmbed failed, trying yt-dlp]', e);
+      console.warn('[YouTube OEmbed probe failed]', e);
     }
   }
 
-  // 2. Try yt-dlp directly
-  try {
-    const raw = await ytdlp([
-      '--extractor-args', 'youtube:player_client=android,web',
-      '--dump-json',
-      '--no-playlist',
-      '--flat-playlist',
-      url,
-    ]);
-    const info = JSON.parse(raw);
-
-    const formats: FormatInfo[] = (info.formats || [])
-      .filter((f: any) => f.ext && (f.vcodec !== 'none' || f.acodec !== 'none'))
-      .map((f: any) => ({
-        id: f.format_id,
-        ext: f.ext,
-        resolution: f.resolution || (f.height ? `${f.height}p` : undefined),
-        fps: f.fps,
-        filesize: f.filesize,
-        vcodec: f.vcodec,
-        acodec: f.acodec,
-      }))
-      .slice(0, 20);
-
-    res.json({
-      title: info.title,
-      thumbnail: info.thumbnail,
-      duration: info.duration,
-      uploader: info.uploader,
-      formats,
-    });
-    return;
-  } catch (err) {
-    console.warn('[Direct yt-dlp analyze failed, retrying with verified proxy]', err);
-  }
-
-  // 3. Retry with verified working proxy pool
-  const verifiedProxies = await fetchVerifiedProxies();
-  for (const proxy of verifiedProxies) {
+  // 2. Multi-strategy extraction (ios,web -> web,mweb -> android,web)
+  const clientStrategies = ['ios,web', 'web,mweb', 'android,web'];
+  for (const clientStrategy of clientStrategies) {
     try {
-      const raw = await ytdlp([
-        '--extractor-args', 'youtube:player_client=android,web',
-        '--proxy', `http://${proxy}`,
+      const args = [
+        '--extractor-args', `youtube:player_client=${clientStrategy}`,
+        ...getCookiesArg(),
         '--dump-json',
         '--no-playlist',
         '--flat-playlist',
-        url,
-      ]);
+      ];
+      const proxy = getCustomProxy();
+      if (proxy) {
+        args.push('--proxy', proxy);
+      }
+      args.push(url);
+
+      const raw = await ytdlp(args);
       const info = JSON.parse(raw);
 
       const formats: FormatInfo[] = (info.formats || [])
@@ -296,9 +213,26 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
         formats,
       });
       return;
-    } catch (proxyErr) {
-      console.warn(`[Proxy analyze failed with ${proxy}]`, proxyErr);
+    } catch (err: any) {
+      console.warn(`[yt-dlp analyze strategy ${clientStrategy} failed]`, err?.message || err);
     }
+  }
+
+  // 3. Resilient fallback if yt-dlp encounters bot protection but oembed data is available
+  if (fallbackOembedData) {
+    res.json({
+      title: fallbackOembedData.title,
+      thumbnail: fallbackOembedData.thumbnail_url,
+      uploader: fallbackOembedData.author_name,
+      duration: 0,
+      formats: [
+        { id: 'bestvideo+bestaudio/best', ext: 'mp4', resolution: '1080p (Best)' },
+        { id: '720p', ext: 'mp4', resolution: '720p HD' },
+        { id: '480p', ext: 'mp4', resolution: '480p SD' },
+        { id: 'bestaudio/best', ext: 'mp3', resolution: 'Audio MP3' },
+      ],
+    });
+    return;
   }
 
   res.status(422).json({ error: 'Could not analyze URL. Please verify the link is public and accessible.' });
@@ -357,13 +291,14 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
   const outputTemplate = path.join(DOWNLOAD_DIR, `${id}-%(title).100s.%(ext)s`);
   const ffmpegAvailable = hasFfmpeg();
 
-  // Build base yt-dlp arguments
-  const buildArgs = (proxyUrl?: string) => {
+  // Build yt-dlp arguments with multi-strategy support
+  const buildArgs = (clientStrategy: string = 'ios,web') => {
     const base: string[] = [
-      '--extractor-args', 'youtube:player_client=android,web',
-      '--retries', '10',
-      '--fragment-retries', '10',
-      '--file-access-retries', '5',
+      '--extractor-args', `youtube:player_client=${clientStrategy}`,
+      ...getCookiesArg(),
+      '--retries', '5',
+      '--fragment-retries', '5',
+      '--file-access-retries', '3',
       '--no-playlist',
       '--no-warnings',
       '--geo-bypass',
@@ -372,8 +307,9 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
       '--newline',
     ];
 
-    if (proxyUrl) {
-      base.push('--proxy', `http://${proxyUrl}`);
+    const proxy = getCustomProxy();
+    if (proxy) {
+      base.push('--proxy', proxy);
     }
 
     if (audioOnly) {
@@ -455,24 +391,20 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
     });
   };
 
-  // Step 1: Try direct download first
-  let result = await executeYtDlp(buildArgs());
+  // Step 1: Execute primary download with ios,web strategy
+  let result = await executeYtDlp(buildArgs('ios,web'));
   let success = result.success;
   let lastError = result.lastError;
 
-  // Step 2: If direct download failed on YouTube, query fast verified working proxies
+  // Step 2: If primary failed on YouTube, retry with secondary strategies (web,mweb -> android,web)
   if (!success && isYouTubeUrl(url)) {
-    console.warn('[Direct download failed, attempting fast proxy fallback]');
-    try {
-      const verifiedProxies = (await fetchVerifiedProxies()).slice(0, 3);
-      for (const proxy of verifiedProxies) {
-        result = await executeYtDlp(buildArgs(proxy));
-        success = result.success;
-        lastError = result.lastError;
-        if (success) break;
-      }
-    } catch (e) {
-      console.warn('[Proxy fallback error]', e);
+    console.warn('[Primary download strategy failed, retrying with fallback client strategy]');
+    const fallbackStrategies = ['web,mweb', 'android,web'];
+    for (const strat of fallbackStrategies) {
+      result = await executeYtDlp(buildArgs(strat));
+      success = result.success;
+      lastError = result.lastError;
+      if (success) break;
     }
   }
 

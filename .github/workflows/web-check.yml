@@ -19,7 +19,7 @@ jobs:
           node-version: 22
 
       - name: Install root dependencies
-        run: npm install
+        run: npm install --include=optional
 
       - name: Build web app
         run: npm run web:build
