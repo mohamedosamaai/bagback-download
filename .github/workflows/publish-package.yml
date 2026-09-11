@@ -39,12 +39,12 @@ jobs:
           echo "engine_tar=packages/downloader-engine/$ENGINE_TAR" >> $GITHUB_OUTPUT
 
       - name: Attest Core Package Build Provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ steps.pack.outputs.core_tar }}
 
       - name: Attest Engine Package Build Provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ steps.pack.outputs.engine_tar }}
 
