@@ -25,7 +25,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install --include=optional
+        run: npm install --include=optional && npm install @rollup/rollup-linux-x64-gnu --no-save
 
       - name: Build shared workspace packages
         run: npm run packages:build
