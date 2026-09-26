@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { spawn, spawnSync } from 'child_process';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -21,8 +21,22 @@ if (!fs.existsSync(DOWNLOAD_DIR)) {
 
 const jobs = new Map<string, Job>();
 
+const allowedOrigins = (
+  process.env.CORS_ORIGIN ||
+  'https://download.bagbacktech.com,https://bagbacktech.com,http://localhost:5173,http://localhost:4000'
+)
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ['GET', 'POST', 'DELETE'],
 }));
 app.use(express.json());
@@ -557,7 +571,7 @@ app.get('/api/jobs/stream', (req: Request, res: Response) => {
   });
 });
 
-app.get('/api/jobs/:id', (req: Request, res: Response) => {
+app.get('/api/jobs/:id', apiLimiter, (req: Request, res: Response) => {
   const job = jobs.get(req.params.id);
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
@@ -566,7 +580,7 @@ app.get('/api/jobs/:id', (req: Request, res: Response) => {
   res.json(job);
 });
 
-app.get('/api/jobs/:id/file', (req: Request, res: Response) => {
+app.get('/api/jobs/:id/file', apiLimiter, (req: Request, res: Response) => {
   const job = jobs.get(req.params.id);
   if (!job || job.status !== 'completed' || !job.filePath) {
     res.status(404).json({ error: 'File not ready' });
@@ -597,7 +611,7 @@ app.get('/api/jobs/:id/file', (req: Request, res: Response) => {
   fs.createReadStream(job.filePath).pipe(res);
 });
 
-app.delete('/api/jobs', (_req: Request, res: Response) => {
+app.delete('/api/jobs', apiLimiter, (_req: Request, res: Response) => {
   for (const [id, job] of jobs.entries()) {
     if (job.filePath && fs.existsSync(job.filePath)) {
       try {
@@ -612,7 +626,7 @@ app.delete('/api/jobs', (_req: Request, res: Response) => {
   res.json({ cleared: true });
 });
 
-app.delete('/api/jobs/:id', (req: Request, res: Response) => {
+app.delete('/api/jobs/:id', apiLimiter, (req: Request, res: Response) => {
   const job = jobs.get(req.params.id);
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
@@ -632,7 +646,7 @@ app.delete('/api/jobs/:id', (req: Request, res: Response) => {
 
 if (fs.existsSync(STATIC_DIR)) {
   app.use(express.static(STATIC_DIR));
-  app.get('*', (_req: Request, res: Response) => {
+  app.get('*', apiLimiter, (_req: Request, res: Response) => {
     const indexPath = path.join(STATIC_DIR, 'index.html');
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);

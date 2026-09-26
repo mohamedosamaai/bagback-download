@@ -5,6 +5,8 @@ export type Lang = 'ar' | 'en';
 export const dict = {
   ar: {
     appName: 'Bagback Download',
+    brandName: 'Bagback',
+    brandSuffix: 'Download',
     tagline: 'مدير التحميل المفتوح والمجاني لمحتوى الويب والفيديو والصوت',
     subtagline: 'صنع بحب للمستخدمين بدون أرباح، من شركة Bagback Digital Solutions بيد المطور محمد أسامة.',
     inputPlaceholder: 'الصق رابط الفيديو أو الصوت هنا...',
@@ -67,6 +69,8 @@ export const dict = {
   },
   en: {
     appName: 'Bagback Download',
+    brandName: 'Bagback',
+    brandSuffix: 'Download',
     tagline: 'Free, Open-Source Universal Media & File Download Manager',
     subtagline: 'Built with love for users without profit, by Bagback Digital Solutions & lead developer Mohamed Osama.',
     inputPlaceholder: 'Paste video or media link here...',

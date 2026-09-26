@@ -25,7 +25,7 @@ jobs:
           scope: '@mohamedosamaai'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --include=optional
 
       - name: Build Monorepo
         run: npm run build
@@ -33,6 +33,20 @@ jobs:
       - name: Pack Distribution Tarballs
         id: pack
         run: |
+          node -e '
+            const fs = require("fs");
+            for (const [dir, name] of [
+              ["packages/core", "@mohamedosamaai/bagback-download-core"],
+              ["packages/downloader-engine", "@mohamedosamaai/bagback-download-engine"]
+            ]) {
+              const file = dir + "/package.json";
+              const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+              pkg.name = name;
+              pkg.repository = { type: "git", url: "git+https://github.com/mohamedosamaai/bagback-download.git" };
+              pkg.publishConfig = { registry: "https://npm.pkg.github.com" };
+              fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+            }
+          '
           CORE_TAR=$(cd packages/core && npm pack)
           ENGINE_TAR=$(cd packages/downloader-engine && npm pack)
           echo "core_tar=packages/core/$CORE_TAR" >> $GITHUB_OUTPUT

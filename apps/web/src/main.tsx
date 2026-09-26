@@ -196,7 +196,7 @@ interface HistoryItem {
   timestamp: number;
 }
 
-const API = '/api';
+const API = import.meta.env.VITE_API_URL || '/api';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -394,6 +394,12 @@ function Header({
             src="/logo.png"
             alt="Bagback Download Logo"
             className="logo-image"
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (!img.src.endsWith('/apple-icon.png')) {
+                img.src = '/apple-icon.png';
+              }
+            }}
           />
           <div className="logo-text-group">
             <span className="logo-title">{t('brandName')}</span>
@@ -1061,6 +1067,12 @@ function App() {
                 <img
                   src="/logo.png"
                   alt="Bagback Download Logo"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    if (!img.src.endsWith('/apple-icon.png')) {
+                      img.src = '/apple-icon.png';
+                    }
+                  }}
                 />
               </div>
               <p>{t('emptyQueue')}</p>

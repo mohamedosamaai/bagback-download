@@ -7,7 +7,15 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-icon.png'],
+      includeAssets: [
+        'favicon.ico',
+        'favicon.png',
+        'apple-icon.png',
+        'logo.png',
+        'logo-landscape.png',
+        'logo-symbol.png',
+        'icon-512.png',
+      ],
       manifest: false // We already have a static manifest in public/manifest.webmanifest
     })
   ],
