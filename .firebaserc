@@ -1,0 +1,13 @@
+{
+  "projects": {},
+  "targets": {
+    "studio-5001268138-bcc58": {
+      "hosting": {
+        "bagback-download": [
+          "bagback-download"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

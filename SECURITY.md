@@ -1,24 +1,31 @@
 # Security Policy
 
-## Reporting
+## Supported Versions
 
-Please report security concerns privately to the project owner before public disclosure.
+The following versions are actively supported with security updates and critical patches:
 
-Owner platform: https://bagbacktech.com
+| Version | Supported |
+| ------- | --------- |
+| v1.x    | Yes       |
+| < v1.0  | No        |
 
-## Current Status
+---
 
-This project is in early scaffold stage. No production release is available yet.
+## Reporting Vulnerabilities
+
+Please report security concerns privately to the project maintainers rather than opening a public issue.
+
+You can submit security disclosures via:
+- **Email**: security@bagbacktech.com
+- **Platform**: https://bagbacktech.com
+
+Reports are reviewed within 48 hours and coordinated for patch releases.
+
+---
 
 ## Security Principles
 
-- Do not store user credentials in the app.
-- Do not add tracking by default.
-- Do not add hidden network behavior.
-- Keep dependencies minimal.
-- Review every dependency before release.
-- Keep user-facing warnings clear.
-
-## Supported Versions
-
-No public version is currently supported.
+- **Zero Secret Storage**: API tokens and cloud keys are never hardcoded. Environment variables are used exclusively.
+- **Privacy Enforcement**: No third-party trackers, telemetry, or commercial analytics.
+- **Minimal Footprint**: External dependencies are kept minimal and audited against supply-chain vulnerabilities.
+- **Isolated Execution**: Media extraction runs in isolated temporary directories with strict argument validation and automatic file cleanup.

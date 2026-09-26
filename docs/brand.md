@@ -1,45 +1,34 @@
-# Brand
+# Brand Guidelines
 
 ## Product Name
 
 Bagback Download
 
-## Owner
+## Organization
 
-Bagback Tech
+Bagback Digital Solutions (`https://bagbacktech.com`)
 
-## Credit
+## Founder & Lead Architect
 
-Mohamed Osama  
-@Mohamedosamaai
+Mohamed Osama (`https://mohamedosama.me` · `@mohamedosamaai`)
 
-## Arabic Message
+## Identity Statement (Arabic)
 
-صنع بحب للمستخدمين بدون أرباح.  
-من شركة Bagback Tech.  
-بيد المطور Mohamed Osama.
+صنع بحب للمستخدمين بدون أرباح، من شركة Bagback Digital Solutions بيد المطور محمد أسامة.
 
-## English Message
+## Identity Statement (English)
 
-Made with love for users, without profit.  
-Built by Bagback Tech by developer Mohamed Osama.
+Built with love for users without profit, by Bagback Digital Solutions & lead developer Mohamed Osama.
 
-## Links
+## Official Links
 
-- Bagback Tech: https://bagbacktech.com
-- Elitk: https://elitk.com
-- Library: https://ai.bagbacktech.com
-- Mohamed Osama: https://mohamedosama.me
-- Username: @Mohamedosamaai
+- **Live Platform**: https://download.bagbacktech.com
+- **Bagback Digital Solutions**: https://bagbacktech.com
+- **Founder Portfolio**: https://mohamedosama.me
+- **GitHub Repository**: https://github.com/mohamedosamaai/bagback-download
 
-## Visual Direction
+## Visual System
 
-- Clean mobile-first interface.
-- Calm green identity.
-- Rounded cards.
-- Clear Arabic typography.
-- Light theme first, dark theme later.
-
-## Logo
-
-Pending final logo from project owner.
+- Mobile-first responsive layout with full RTL (Arabic) and LTR (English) support.
+- Adaptive Dark and Light themes.
+- Official brand assets in `apps/web/public/` (`logo.png`, `logo-landscape.png`, `logo-symbol.png`, `apple-icon.png`, `icon-512.png`, `favicon.ico`).

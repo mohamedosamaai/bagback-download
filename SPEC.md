@@ -133,63 +133,50 @@ Deferred until a policy-safe scope is confirmed.
 - Support
 - Contributors
 
-## 7. About Screen Links
+## 7. Official Links
 
-- Bagback Tech: https://bagbacktech.com
-- Try Elitk: https://elitk.com
-- Developer Library: https://ai.bagbacktech.com
-- Mohamed Osama: https://mohamedosama.me
-- GitHub username: @Mohamedosamaai
+- **Live Application**: https://download.bagbacktech.com
+- **Bagback Digital Solutions**: https://bagbacktech.com
+- **Mohamed Osama**: https://mohamedosama.me
+- **GitHub Repository**: https://github.com/mohamedosamaai/bagback-download
 
-## 8. Initial Architecture
+## 8. Monorepo Architecture
 
 ```text
 bagback-download/
 ├── apps/
-│   ├── android/
-│   └── web/
+│   ├── web/                 # React + Vite PWA frontend (Firebase Hosting)
+│   ├── server/              # Express + yt-dlp + FFmpeg backend (Google Cloud Run)
+│   └── extension/           # Chrome / Edge Manifest V3 extension
 ├── packages/
-│   ├── core/
-│   ├── downloader-engine/
-│   └── shared-ui/
-├── docs/
-└── .github/
+│   ├── core/                # Shared TypeScript interfaces & contracts
+│   └── downloader-engine/   # URL validation & engine utilities
+├── docs/                    # Architecture, brand & clean-room policy docs
+├── .github/                 # CI/CD, CodeQL, security & Dependabot workflows
+├── firebase.json            # Firebase Hosting & Cloud Run rewrite configuration
+├── Dockerfile               # Multi-stage production container image
+└── docker-compose.yml       # Self-hosted container orchestration
 ```
 
-## 9. MVP Definition
+## 9. Production Capabilities
 
-MVP must include:
+- Full-stack URL metadata extraction and format selection.
+- Real-time download queue progress via Server-Sent Events (SSE).
+- Video and MP3 audio extraction with automatic stream multiplexing.
+- Bilingual interface (Arabic RTL & English LTR) with Dark/Light themes.
+- Local browser download history and optional Dropbox cloud export.
+- Installable mobile/desktop PWA and Manifest V3 browser extension.
 
-- App branding.
-- URL input screen.
-- Download queue UI.
-- Settings UI shell.
-- About screen with Bagback identity.
-- Clean-room policy.
-- Legal safe-scope notice.
-- PWA starter shell.
-- Android starter shell.
+## 10. Non-goals
 
-Actual downloader engine integration comes after the legal/dependency review.
-
-## 10. Non-goals for MVP
-
-- No copied Seal code.
-- No copied Seal UI.
-- No hidden copyright-infringement behavior.
-- No native iOS App Store submission in MVP.
-- No promise that every website is supported.
+- No copied Seal code or UI assets.
+- No user tracking, analytics cookies, or telemetry.
+- No permanent storage of downloaded user media on the server.
 
 ## 11. Public Positioning
 
-Recommended wording:
-
 > A free, open-source download manager for supported links and user-authorized media.
-
-Avoid wording:
-
-> Download from any website.
 
 ## 12. Current Status
 
-Planning and initial scaffold.
+Active production release (`v1.x`) under the MIT License.

@@ -1,0 +1,19 @@
+# CODEOWNERS
+# Each line is a file pattern followed by one or more owners.
+# These owners will be requested for review when a PR modifies matching files.
+
+# Default owner for everything
+* @mohamedosamaai
+
+# Frontend application
+/apps/web/ @mohamedosamaai
+
+# Backend API
+/apps/server/ @mohamedosamaai
+
+# CI/CD workflows — extra review required
+/.github/workflows/ @mohamedosamaai
+
+# Documentation
+*.md @mohamedosamaai
+/docs/ @mohamedosamaai

@@ -33,11 +33,21 @@
           "description": "Free, open-source download manager built by Bagback Digital Solutions",
           "author": {
             "@type": "Person",
+            "@id": "https://mohamedosama.me/#person",
             "name": "Mohamed Osama",
-            "url": "https://mohamedosama.me"
+            "url": "https://mohamedosama.me",
+            "sameAs": [
+              "https://github.com/mohamedosamaai",
+              "https://www.linkedin.com/in/mohamed-osama-ai/",
+              "https://devpost.com/mohamedosamaai",
+              "https://g.dev/mohamedosamaai",
+              "https://www.credly.com/users/mohamedosamaai",
+              "https://wa.me/971505465814"
+            ]
           },
           "publisher": {
             "@type": "Organization",
+            "@id": "https://bagbacktech.com/#org",
             "name": "Bagback Digital Solutions",
             "url": "https://bagbacktech.com"
           },
@@ -46,41 +56,19 @@
         },
         {
           "@type": "Organization",
+          "@id": "https://bagbacktech.com/#org",
           "name": "Bagback Digital Solutions",
           "url": "https://bagbacktech.com",
           "logo": "https://download.bagbacktech.com/logo.png",
           "founder": {
             "@type": "Person",
+            "@id": "https://mohamedosama.me/#person",
             "name": "Mohamed Osama",
             "url": "https://mohamedosama.me"
           }
         }
       ]
     }
-    </script>
-    <!-- Bagback Hub Telemetry Injection -->
-    <script>
-      (function() {
-        setTimeout(function() {
-          var HUB_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:3456/telemetry'
-            : 'https://hub.bagbacktech.com/api/v1/telemetry/event';
-          fetch(HUB_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Bagback-Secret-Key': 'test-secret-key'
-            },
-            body: JSON.stringify({
-              project_id: 'bagback-download',
-              event_type: 'PAGE_VIEW',
-              timestamp: new Date().toISOString(),
-              user: { id: 'anonymous' },
-              payload: { path: window.location.pathname, referrer: document.referrer }
-            })
-          }).catch(console.error);
-        }, 1000);
-      })();
     </script>
   </head>
   <body>
