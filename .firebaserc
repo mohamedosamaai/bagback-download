@@ -1,9 +1,9 @@
 {
   "projects": {
-    "default": "bagback-download"
+    "default": "studio-5001268138-bcc58"
   },
   "targets": {
-    "bagback-download": {
+    "studio-5001268138-bcc58": {
       "hosting": {
         "bagback-download": [
           "bagback-download"
