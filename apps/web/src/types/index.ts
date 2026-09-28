@@ -22,12 +22,25 @@ export interface Format {
   acodec?: string;
 }
 
+export interface PlaylistItem {
+  id: string;
+  title: string;
+  url: string;
+  duration?: number;
+  thumbnail?: string;
+  uploader?: string;
+}
+
 export interface AnalyzeResult {
   title: string;
   thumbnail?: string;
   duration?: number;
   uploader?: string;
   formats: Format[];
+  isPlaylist?: boolean;
+  playlistTitle?: string;
+  playlistCount?: number;
+  playlistItems?: PlaylistItem[];
 }
 
 export interface HistoryItem {

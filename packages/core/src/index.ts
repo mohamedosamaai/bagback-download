@@ -25,6 +25,15 @@ export interface FormatInfo {
   acodec?: string;
 }
 
+export interface PlaylistItem {
+  id: string;
+  title: string;
+  url: string;
+  duration?: number;
+  thumbnail?: string;
+  uploader?: string;
+}
+
 export type AppLink = {
   label: string;
   url: string;

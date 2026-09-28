@@ -3,7 +3,7 @@ import { getMockMetadata } from '../mocks/handlers';
 
 export interface DownloadService {
   analyze(url: string): Promise<AnalyzeResult>;
-  download(opts: { url: string; format: string; audioOnly: boolean }): Promise<{ id: string }>;
+  download(opts: { url: string; format: string; audioOnly: boolean; title?: string; items?: Array<{ url: string; title?: string }> }): Promise<{ id: string }>;
   getJobs(): Promise<Job[]>;
   deleteJob(id: string): Promise<{ deleted: boolean }>;
   streamJobs(callback: (jobs: Job[]) => void): () => void;
@@ -24,7 +24,7 @@ export class RealDownloadService implements DownloadService {
     return data;
   }
 
-  async download(opts: { url: string; format: string; audioOnly: boolean }): Promise<{ id: string }> {
+  async download(opts: { url: string; format: string; audioOnly: boolean; title?: string; items?: Array<{ url: string; title?: string }> }): Promise<{ id: string }> {
     const res = await fetch(`${this.API}/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

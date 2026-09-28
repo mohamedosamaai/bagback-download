@@ -66,6 +66,14 @@ export const dict = {
 - رؤية المنتجات: جزء من منظومة Bagback التقنية للحلول الرقمية المتطورة.`,
 
     closeModal: 'إغلاق',
+    playlistTab: 'قائمة التشغيل بالكامل',
+    singleVideoTab: 'الفيديو الحالي فقط',
+    playlistBadge: 'قائمة تشغيل',
+    playlistItemsLabel: 'عناصر قائمة التشغيل',
+    selectAllItems: 'تحديد الكل',
+    deselectAllItems: 'إلغاء تحديد الكل',
+    startPlaylistVideo: 'تحميل القائمة كفيديو (MP4)',
+    startPlaylistAudio: 'تحميل القائمة كصوت (MP3)',
   },
   en: {
     appName: 'Bagback Download',
@@ -130,6 +138,14 @@ export const dict = {
 - Ecosystem: Proud component of the Bagback Digital Solutions technology suit.`,
 
     closeModal: 'Close',
+    playlistTab: 'Entire Playlist',
+    singleVideoTab: 'Current Video Only',
+    playlistBadge: 'Playlist',
+    playlistItemsLabel: 'Playlist Items',
+    selectAllItems: 'Select All',
+    deselectAllItems: 'Deselect All',
+    startPlaylistVideo: 'Download Playlist as Video (MP4)',
+    startPlaylistAudio: 'Download Playlist as Audio (MP3)',
   }
 } as const;
 
