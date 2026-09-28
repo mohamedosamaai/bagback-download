@@ -21,7 +21,7 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 COPY packages/ ./packages/
 COPY apps/server/ ./apps/server/
-RUN npm install
+RUN npm install && rm -rf node_modules/youtube-dl-exec/bin
 RUN npx tsc --project packages/core && npx tsc --project packages/downloader-engine && cd apps/server && npm run build
 
 # ═══════════════════════════════════════════════════
@@ -29,22 +29,29 @@ RUN npx tsc --project packages/core && npx tsc --project packages/downloader-eng
 # ═══════════════════════════════════════════════════
 FROM python:3.12-slim
 
-# Install system dependencies + Deno JS runtime for yt-dlp EJS
+# Install system dependencies + Deno JS runtime + bgutil-pot PO Token Provider
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     unzip \
     ffmpeg \
     nodejs \
-    npm \
     && curl -fsSL https://deno.land/install.sh | sh \
     && cp /root/.deno/bin/deno /usr/local/bin/deno \
+    && curl -fsSL "https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/download/v0.8.1/bgutil-pot-linux-x86_64" -o /usr/local/bin/bgutil-pot \
+    && chmod +x /usr/local/bin/bgutil-pot \
+    && mkdir -p /etc/yt-dlp/plugins/bgutil \
+    && curl -fsSL "https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/download/v0.8.1/bgutil-ytdlp-pot-provider-rs.zip" -o /tmp/bgutil-plugin.zip \
+    && unzip -q /tmp/bgutil-plugin.zip -d /etc/yt-dlp/plugins/bgutil \
+    && chmod -R a+rX /etc/yt-dlp \
+    && rm -f /tmp/bgutil-plugin.zip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp + curl_cffi for browser impersonation
-RUN pip install --no-cache-dir --upgrade yt-dlp curl_cffi
+# Install yt-dlp[default,curl-cffi] (includes yt-dlp-ejs challenge solver + curl_cffi TLS impersonation)
+RUN pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]"
 
 # Verify installations
-RUN yt-dlp --version && deno --version && ffmpeg -version | head -1
+RUN yt-dlp --version && deno --version && bgutil-pot --version && ffmpeg -version | head -1
 
 RUN useradd -m -u 1001 bagback
 
@@ -63,6 +70,7 @@ ENV NODE_ENV=production
 ENV PORT=4000
 ENV DOWNLOAD_DIR=/downloads
 ENV STATIC_DIR=/app/static
+ENV YTDLP_PATH=/usr/local/bin/yt-dlp
 
 EXPOSE 4000
 
