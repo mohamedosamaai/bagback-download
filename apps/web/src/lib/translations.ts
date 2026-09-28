@@ -74,6 +74,15 @@ export const dict = {
     deselectAllItems: 'إلغاء تحديد الكل',
     startPlaylistVideo: 'تحميل القائمة كفيديو (MP4)',
     startPlaylistAudio: 'تحميل القائمة كصوت (MP3)',
+    installApp: 'تثبيت التطبيق',
+    installBannerTitle: 'ثبّت Bagback Download كتطبيق على هاتفك',
+    installBannerDesc: 'وصول فوري من الشاشة الرئيسية وتجربة تحميل أسرع كأنه تطبيق أصلي تماماً.',
+    installNowBtn: 'تثبيت الآن',
+    dismissInstall: 'إغلاق شريط التثبيت',
+    installIosTitle: 'تثبيت التطبيق على الهاتف',
+    installIosBody: `لتثبيت Bagback Download كتطبيق مستقل على شاشتك الرئيسية:
+- على آيفون (Safari): اضغط على زر المشاركة (Share) في شريط المتصفح، ثم اختر "إضافة إلى الشاشة الرئيسية" (Add to Home Screen) واضغط "إضافة".
+- على أندرويد (Chrome): اضغط على قائمة المتصفح (النقاط الثلاث أعلى الشاشة) ثم اختر "تثبيت التطبيق" (Install app) أو "الإضافة إلى الشاشة الرئيسية".`,
   },
   en: {
     appName: 'Bagback Download',
@@ -146,6 +155,15 @@ export const dict = {
     deselectAllItems: 'Deselect All',
     startPlaylistVideo: 'Download Playlist as Video (MP4)',
     startPlaylistAudio: 'Download Playlist as Audio (MP3)',
+    installApp: 'Install App',
+    installBannerTitle: 'Install Bagback Download on Your Phone',
+    installBannerDesc: 'Instant home screen access and faster full-screen downloads just like a native app.',
+    installNowBtn: 'Install Now',
+    dismissInstall: 'Dismiss install banner',
+    installIosTitle: 'Install App on Your Phone',
+    installIosBody: `To install Bagback Download as a standalone app on your home screen:
+- On iPhone / iPad (Safari): Tap the Share button in Safari, scroll down and select "Add to Home Screen", then tap "Add".
+- On Android (Chrome): Tap the browser menu (three dots at the top right) and select "Install app" or "Add to Home screen".`,
   }
 } as const;
 

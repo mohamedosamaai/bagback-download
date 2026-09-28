@@ -89,6 +89,15 @@ const dict = {
     deselectAllItems: 'إلغاء تحديد الكل',
     startPlaylistVideo: 'تحميل القائمة كفيديو (MP4)',
     startPlaylistAudio: 'تحميل القائمة كصوت (MP3)',
+    installApp: 'تثبيت التطبيق',
+    installBannerTitle: 'ثبّت Bagback Download كتطبيق على هاتفك',
+    installBannerDesc: 'وصول فوري من الشاشة الرئيسية وتجربة تحميل أسرع كأنه تطبيق أصلي تماماً.',
+    installNowBtn: 'تثبيت الآن',
+    dismissInstall: 'إغلاق شريط التثبيت',
+    installIosTitle: 'تثبيت التطبيق على الهاتف',
+    installIosBody: `لتثبيت Bagback Download كتطبيق مستقل على شاشتك الرئيسية:
+- على آيفون (Safari): اضغط على زر المشاركة (Share) في شريط المتصفح، ثم اختر "إضافة إلى الشاشة الرئيسية" (Add to Home Screen) واضغط "إضافة".
+- على أندرويد (Chrome): اضغط على قائمة المتصفح (النقاط الثلاث أعلى الشاشة) ثم اختر "تثبيت التطبيق" (Install app) أو "الإضافة إلى الشاشة الرئيسية".`,
   },
   en: {
     appName: 'Bagback Download',
@@ -167,10 +176,25 @@ const dict = {
     deselectAllItems: 'Deselect All',
     startPlaylistVideo: 'Download Playlist as Video (MP4)',
     startPlaylistAudio: 'Download Playlist as Audio (MP3)',
+    installApp: 'Install App',
+    installBannerTitle: 'Install Bagback Download on Your Phone',
+    installBannerDesc: 'Instant home screen access and faster full-screen downloads just like a native app.',
+    installNowBtn: 'Install Now',
+    dismissInstall: 'Dismiss install banner',
+    installIosTitle: 'Install App on Your Phone',
+    installIosBody: `To install Bagback Download as a standalone app on your home screen:
+- On iPhone / iPad (Safari): Tap the Share button in Safari, scroll down and select "Add to Home Screen", then tap "Add".
+- On Android (Chrome): Tap the browser menu (three dots at the top right) and select "Install app" or "Add to Home screen".`,
   }
 } as const;
 
 type DictKeys = keyof typeof dict['ar'];
+
+interface BeforeInstallPromptEvent extends Event {
+  readonly platforms: string[];
+  readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+  prompt(): Promise<void>;
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -367,6 +391,30 @@ const PasteIcon = () => (
   </svg>
 );
 
+const PhoneInstallIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+    <line x1="12" y1="18" x2="12.01" y2="18" />
+    <path d="M12 7v6" />
+    <path d="m9.5 10.5 2.5 2.5 2.5-2.5" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
+const AlertIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
 // ─── Dropbox Saver Component ────────────────────────────────────────────────
 
 const DROPBOX_ENABLED = Boolean(import.meta.env.VITE_DROPBOX_APP_KEY);
@@ -404,16 +452,71 @@ function DropboxSaver({ url, filename, title }: { url: string; filename: string;
   );
 }
 
+// ─── PWA Mobile Install Banner Component ────────────────────────────────────
+
+/**
+ * Prominent mobile app installation banner shown at the top of the app when not installed as a standalone PWA.
+ */
+function PwaInstallBanner({
+  t,
+  onInstall,
+  onDismiss,
+}: {
+  t: (key: DictKeys) => string;
+  onInstall: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="pwa-install-banner" role="region" aria-label={t('installBannerTitle')}>
+      <div className="pwa-banner-main">
+        <img
+          src="/apple-icon.png"
+          alt="Bagback App Icon"
+          className="pwa-banner-icon"
+          width="44"
+          height="44"
+        />
+        <div className="pwa-banner-text">
+          <div className="pwa-banner-title">{t('installBannerTitle')}</div>
+          <div className="pwa-banner-desc">{t('installBannerDesc')}</div>
+        </div>
+      </div>
+      <div className="pwa-banner-actions">
+        <button
+          type="button"
+          className="btn btn-primary pwa-install-cta"
+          onClick={onInstall}
+        >
+          <PhoneInstallIcon /> {t('installNowBtn')}
+        </button>
+        <button
+          type="button"
+          className="icon-btn pwa-dismiss-btn"
+          onClick={onDismiss}
+          title={t('dismissInstall')}
+          aria-label={t('dismissInstall')}
+        >
+          <CloseIcon />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Header Component ───────────────────────────────────────────────────────
 
 function Header({
   lang,
   setLang,
   t,
+  showInstall,
+  onInstall,
 }: {
   lang: Lang;
   setLang: (lang: Lang) => void;
   t: (key: DictKeys) => string;
+  showInstall: boolean;
+  onInstall: () => void;
 }) {
   return (
     <header className="header">
@@ -436,7 +539,18 @@ function Header({
           </div>
         </a>
         <nav className="header-nav">
+          {showInstall && (
+            <button
+              type="button"
+              className="nav-btn install-nav-btn"
+              onClick={onInstall}
+              aria-label={t('installApp')}
+            >
+              <PhoneInstallIcon /> <span>{t('installApp')}</span>
+            </button>
+          )}
           <button
+            type="button"
             className="nav-btn lang-btn"
             onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')}
             aria-label={t('langSwitch')}
@@ -449,7 +563,7 @@ function Header({
             rel="noreferrer"
             className="nav-link"
           >
-            <button className="nav-btn">{t('bagbackTech')}</button>
+            <button type="button" className="nav-btn">{t('bagbackTech')}</button>
           </a>
           <a
             href="https://github.com/mohamedosamaai/bagback-download"
@@ -457,7 +571,7 @@ function Header({
             rel="noreferrer"
             className="nav-link"
           >
-            <button className="nav-btn">{t('github')}</button>
+            <button type="button" className="nav-btn">{t('github')}</button>
           </a>
         </nav>
       </div>
@@ -699,7 +813,7 @@ function AnalyzeResultCard({
       </div>
 
       {hasPlaylist && result.playlistItems && (
-        <div className="options-row" style={{ marginBottom: '12px', justifyContent: 'flex-start' }}>
+        <div className="options-row tabs-row" style={{ marginBottom: '12px', justifyContent: 'flex-start' }}>
           <button
             type="button"
             className={`option-chip ${playlistMode ? 'selected' : ''}`}
@@ -717,7 +831,7 @@ function AnalyzeResultCard({
         </div>
       )}
 
-      <div className="options-row" style={{ marginBottom: '14px', justifyContent: 'flex-start' }}>
+      <div className="options-row tabs-row" style={{ marginBottom: '14px', justifyContent: 'flex-start' }}>
         <button
           type="button"
           className={`option-chip ${!audioOnly ? 'selected' : ''}`}
@@ -848,7 +962,9 @@ function InfoModal({
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
-          <button className="icon-btn" onClick={onClose} aria-label={t('closeModal')}>✕</button>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t('closeModal')}>
+            <CloseIcon />
+          </button>
         </div>
         <div className="modal-body">
           {body.split('\n').map((paragraph, i) => (
@@ -856,7 +972,7 @@ function InfoModal({
           ))}
         </div>
         <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={onClose}>{t('closeModal')}</button>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>{t('closeModal')}</button>
         </div>
       </div>
     </div>
@@ -865,13 +981,27 @@ function InfoModal({
 
 // ─── Main Application ──────────────────────────────────────────────────────
 
+function extractSharedUrl(params: URLSearchParams): string {
+  const direct = params.get('url');
+  if (direct) return direct;
+  const text = params.get('text');
+  if (text) {
+    const match = text.match(/https?:\/\/\S+/i);
+    if (match) return match[0];
+  }
+  return '';
+}
+
 function App() {
   const [lang, setLang] = useState<Lang>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const queryLang = params.get('lang');
+    if (queryLang === 'ar' || queryLang === 'en') return queryLang;
     return (localStorage.getItem('bagback-lang') as Lang) || 'ar';
   });
   const [url, setUrl] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('url') || '';
+    return extractSharedUrl(params);
   });
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null);
@@ -882,7 +1012,16 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [activeModal, setActiveModal] = useState<'terms' | 'privacy' | 'cleanRoom' | null>(null);
+  const [activeModal, setActiveModal] = useState<'terms' | 'privacy' | 'cleanRoom' | 'installGuide' | null>(null);
+  const [isStandalone, setIsStandalone] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      Boolean((window.navigator as unknown as { standalone?: boolean }).standalone)
+    );
+  });
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installBannerDismissed, setInstallBannerDismissed] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Translation helper function
@@ -890,12 +1029,61 @@ function App() {
     return dict[lang][key] || dict.ar[key] || '';
   }, [lang]);
 
+  // Listen for browser PWA install prompt & standalone display mode changes
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+    const handleAppInstalled = () => {
+      setDeferredPrompt(null);
+      setIsStandalone(true);
+    };
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const handleDisplayModeChange = (e: MediaQueryListEvent) => {
+      if (e.matches) setIsStandalone(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleDisplayModeChange);
+    }
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener('change', handleDisplayModeChange);
+      }
+    };
+  }, []);
+
+  const handleInstallClick = useCallback(async () => {
+    if (deferredPrompt) {
+      try {
+        await deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice.outcome === 'accepted') {
+          setDeferredPrompt(null);
+          setIsStandalone(true);
+        }
+      } catch {
+        setActiveModal('installGuide');
+      }
+    } else {
+      setActiveModal('installGuide');
+    }
+  }, [deferredPrompt]);
+
   // Update HTML document attributes for language & enforce dark theme
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
     localStorage.setItem('bagback-lang', lang);
     document.documentElement.setAttribute('data-theme', 'dark');
+    document.title = lang === 'ar'
+      ? 'Bagback Download — تحميل فيديو وصوت وقوائم تشغيل مجاناً | Free Video & MP3 Downloader'
+      : 'Bagback Download — Free Video, Audio (MP3) & Playlist Downloader';
   }, [lang]);
 
   // Real-time synchronization: SSE + Polling Fallback
@@ -977,10 +1165,10 @@ function App() {
     }
   }, [url]);
 
-  // Auto-analyze on load if URL is passed in query string
+  // Auto-analyze on load if URL is passed in query string or shared from Android app
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const paramUrl = params.get('url');
+    const paramUrl = extractSharedUrl(params);
     if (paramUrl) {
       window.history.replaceState({}, document.title, window.location.pathname);
       setUrl(paramUrl);
@@ -1063,11 +1251,22 @@ function App() {
         lang={lang}
         setLang={setLang}
         t={t}
+        showInstall={!isStandalone}
+        onInstall={handleInstallClick}
       />
 
       {/* Main Container */}
       <main className="main">
         <div className="container">
+          {/* Mobile / PWA Instant Install Banner */}
+          {!isStandalone && !installBannerDismissed && (
+            <PwaInstallBanner
+              t={t}
+              onInstall={handleInstallClick}
+              onDismiss={() => setInstallBannerDismissed(true)}
+            />
+          )}
+
           {/* Hero Section */}
           <div className="hero">
             <div className="hero-eyebrow">
@@ -1097,6 +1296,7 @@ function App() {
                 spellCheck={false}
               />
               <button
+                type="button"
                 className="btn btn-primary"
                 onClick={() => handleAnalyze()}
                 disabled={analyzing || !url.trim()}
@@ -1110,7 +1310,7 @@ function App() {
             </div>
 
             <div className="options-row">
-              <button className="option-chip" onClick={handlePaste}>
+              <button type="button" className="option-chip" onClick={handlePaste}>
                 <PasteIcon /> {t('pasteClipboard')}
               </button>
               <span className="supported-hint">{t('supportedSites')}</span>
@@ -1120,7 +1320,7 @@ function App() {
           {/* Error Message */}
           {analyzeError && (
             <div className="error-msg">
-              ⚠️ {analyzeError}
+              <AlertIcon /> <span>{analyzeError}</span>
             </div>
           )}
 
@@ -1159,6 +1359,7 @@ function App() {
                       <span className="badge">{doneJobs.length}</span>
                     </div>
                     <button
+                      type="button"
                       className="btn btn-ghost"
                       style={{ fontSize: '12px', padding: '5px 12px', minHeight: '32px' }}
                       onClick={handleClearAll}
@@ -1183,6 +1384,7 @@ function App() {
                   <span className="badge">{localHistory.length}</span>
                 </div>
                 <button
+                  type="button"
                   className="btn btn-ghost"
                   style={{ fontSize: '12px', padding: '5px 12px', minHeight: '32px' }}
                   onClick={() => {
@@ -1211,6 +1413,7 @@ function App() {
                     </div>
                     <div className="history-actions">
                       <button
+                        type="button"
                         className="icon-btn"
                         onClick={() => {
                           setUrl(item.url);
@@ -1223,6 +1426,7 @@ function App() {
                         <SearchIcon />
                       </button>
                       <button
+                        type="button"
                         className="icon-btn"
                         onClick={() => handleCopyHistoryLink(item)}
                         title={copiedId === item.id ? t('copied') : t('copyLink')}
@@ -1269,13 +1473,13 @@ function App() {
           </div>
 
           <div className="footer-links">
-            <button className="footer-link-btn" onClick={() => setActiveModal('terms')}>
+            <button type="button" className="footer-link-btn" onClick={() => setActiveModal('terms')}>
               {t('termsBtn')}
             </button>
-            <button className="footer-link-btn" onClick={() => setActiveModal('privacy')}>
+            <button type="button" className="footer-link-btn" onClick={() => setActiveModal('privacy')}>
               {t('privacyBtn')}
             </button>
-            <button className="footer-link-btn" onClick={() => setActiveModal('cleanRoom')}>
+            <button type="button" className="footer-link-btn" onClick={() => setActiveModal('cleanRoom')}>
               {t('cleanRoomBtn')}
             </button>
             <a href="https://mohamedosama.me" target="_blank" rel="noreferrer">
@@ -1306,6 +1510,14 @@ function App() {
         <InfoModal
           title={t('cleanRoomTitle')}
           body={t('cleanRoomBody')}
+          onClose={() => setActiveModal(null)}
+          t={t}
+        />
+      )}
+      {activeModal === 'installGuide' && (
+        <InfoModal
+          title={t('installIosTitle')}
+          body={t('installIosBody')}
           onClose={() => setActiveModal(null)}
           t={t}
         />
