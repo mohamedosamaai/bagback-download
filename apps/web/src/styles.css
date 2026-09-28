@@ -945,6 +945,115 @@ body {
   gap: 8px;
 }
 
+/* ── SEO Features & FAQ Section ───────────────────── */
+.seo-guide-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.seo-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+}
+
+.seo-features-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+@media (min-width: 641px) {
+  .seo-features-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.seo-feature-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  transition: border-color 0.2s ease;
+}
+
+.seo-feature-card:hover {
+  border-color: var(--border-strong);
+}
+
+.seo-feature-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-green);
+  margin-bottom: 8px;
+}
+
+.seo-feature-head h3 {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.seo-feature-card p {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.seo-faq-block {
+  margin-top: 8px;
+}
+
+.seo-faq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.seo-faq-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.seo-faq-item[open] {
+  border-color: var(--brand-green-border);
+}
+
+.seo-faq-item summary {
+  padding: 12px 16px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  list-style: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.seo-faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.seo-faq-item p {
+  padding: 0 16px 14px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
 /* ── Footer ───────────────────────────────────────── */
 .footer {
   border-top: 1px solid var(--border);

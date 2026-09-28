@@ -108,10 +108,26 @@
           "mainEntity": [
             {
               "@type": "Question",
-              "name": "كيف يمكنني تحميل فيديو أو صوت MP3 أو قائمة تشغيل كاملة؟",
+              "name": "كيف أقوم بتحميل فيديو أو صوت MP3 مجاناً على الهاتف أو الكمبيوتر؟",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "انسخ رابط الفيديو أو قائمة التشغيل، الصقه في Bagback Download واضغط تحليل، ثم اختر تحميل كفيديو MP4 أو صوت فقط MP3 واضغط بدء التحميل."
+                "text": "انسخ رابط الفيديو من يوتيوب أو أي منصة مدعومة، الصقه في Bagback Download واضغط تحليل، ثم اختر فيديو MP4 أو صوت فقط MP3 واضغط بدء التحميل ليتم حفظ الملف مباشرة على جهازك."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "كيف أحمل قائمة تشغيل (Playlist) كاملة كفيديو أو صوت MP3؟",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "عند لصق رابط قائمة تشغيل والضغط على تحليل، يظهر خيار قائمة التشغيل بالكامل مع جميع المقاطع؛ يمكنك تحديد الكل وتحميل القائمة كاملة بصيغة MP4 أو MP3 بضغطة واحدة."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How do I download a video, MP3 audio, or full playlist for free?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Paste any video or playlist link into Bagback Download and tap Analyze, choose Video (MP4) or Audio Only (MP3), select your quality or playlist items, and tap Start Download."
               }
             },
             {
@@ -119,7 +135,7 @@
               "name": "How to install Bagback Download as a mobile app on Android and iPhone?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "Tap the Install App button at the top of Bagback Download to add it directly to your phone home screen as a fast standalone app."
+                "text": "Tap the Install App button at the top of Bagback Download to add it directly to your phone home screen as a fast standalone PWA."
               }
             }
           ]
@@ -129,7 +145,14 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main style="max-width:740px;margin:0 auto;padding:32px 16px;color:#f9fafb;font-family:'Cairo','Inter',sans-serif;">
+        <h1>Bagback Download — تحميل فيديو وصوت MP3 وقوائم تشغيل مجاناً | Free Video &amp; Audio Downloader</h1>
+        <p>مدير التحميل المفتوح والمجاني لتحميل الفيديوهات بجودة عالية MP4 HD وتحويل الصوت MP3 وتحميل قوائم التشغيل الكاملة (Playlists) على الهاتف والكمبيوتر بدون إعلانات — من تطوير المهندس محمد أسامة وشركة Bagback Digital Solutions.</p>
+        <h2>Free Open-Source Video, MP3 Audio &amp; Playlist Downloader PWA</h2>
+        <p>Download HD MP4 videos, extract 320kbps MP3 audio, and batch-download full playlists on Android, iOS, Windows, macOS, and Linux.</p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
