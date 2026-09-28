@@ -83,6 +83,20 @@ export const dict = {
     installIosBody: `لتثبيت Bagback Download كتطبيق مستقل على شاشتك الرئيسية:
 - على آيفون (Safari): اضغط على زر المشاركة (Share) في شريط المتصفح، ثم اختر "إضافة إلى الشاشة الرئيسية" (Add to Home Screen) واضغط "إضافة".
 - على أندرويد (Chrome): اضغط على قائمة المتصفح (النقاط الثلاث أعلى الشاشة) ثم اختر "تثبيت التطبيق" (Install app) أو "الإضافة إلى الشاشة الرئيسية".`,
+    seoSectionTitle: 'مميزات تحميل الفيديو والصوت MP3 وقوائم التشغيل عبر Bagback Download',
+    seoFeat1Title: 'تحميل فيديو بجودة عالية MP4 و HD',
+    seoFeat1Desc: 'تنزيل الفيديوهات من يوتيوب وتيك توك وإنستغرام وفيسبوك وتويتر مباشرة بصيغة MP4 وبأعلى دقة متاحة بدون علامة مائية أو إعلانات مزعجة.',
+    seoFeat2Title: 'تحويل وتحميل الصوت فقط بصيغة MP3',
+    seoFeat2Desc: 'استخراج وتحميل المقاطع الصوتية والمحاضرات والبودكاست بصيغة MP3 نقية بضغطة واحدة مع دعم الحفظ المباشر على الهاتف والكمبيوتر.',
+    seoFeat3Title: 'تحميل قوائم التشغيل الكاملة (Playlists)',
+    seoFeat3Desc: 'انسخ رابط أي قائمة تشغيل وحدد جميع الفيديوهات أو اختر منها ما تريد لتحميلها دفعة واحدة كفيديو MP4 أو صوت MP3 في ملف واحد.',
+    seoFaqTitle: 'الأسئلة الشائعة حول التحميل وتثبيت التطبيق',
+    seoFaq1Q: 'كيف أقوم بتحميل فيديو أو صوت MP3 مجاناً على الهاتف أو الكمبيوتر؟',
+    seoFaq1A: 'انسخ رابط الفيديو من يوتيوب أو أي منصة مدعومة، الصقه في مربع البحث أعلى الصفحة واضغط "تحليل"، ثم اختر "فيديو" أو "صوت فقط (MP3)" واضغط "بدء التحميل" ليتم حفظ الملف مباشرة على جهازك.',
+    seoFaq2Q: 'كيف أحمل قائمة تشغيل (Playlist) كاملة كفيديو أو صوت MP3؟',
+    seoFaq2A: 'عند لصق رابط يحتوي على قائمة تشغيل والضغط على "تحليل"، سيظهر لك خيار "قائمة التشغيل بالكامل" مع قائمة بجميع المقاطع؛ يمكنك تحديد الكل وتحميل القائمة كاملة بصيغة MP4 أو MP3 بضغطة واحدة.',
+    seoFaq3Q: 'كيف أثبت Bagback Download كتطبيق على هاتفي (أندرويد وآيفون)؟',
+    seoFaq3A: 'اضغط على زر "تثبيت التطبيق" أو "تثبيت الآن" الظاهر أعلى الصفحة ليتم تثبيته فوراً على شاشتك الرئيسية كتطبيق خفيف وسريع يدعم المشاركة المباشرة من تطبيقات الفيديو.',
   },
   en: {
     appName: 'Bagback Download',
@@ -164,6 +178,20 @@ export const dict = {
     installIosBody: `To install Bagback Download as a standalone app on your home screen:
 - On iPhone / iPad (Safari): Tap the Share button in Safari, scroll down and select "Add to Home Screen", then tap "Add".
 - On Android (Chrome): Tap the browser menu (three dots at the top right) and select "Install app" or "Add to Home screen".`,
+    seoSectionTitle: 'Video, MP3 Audio & Playlist Downloader Features — Bagback Download',
+    seoFeat1Title: 'HD MP4 Video Downloader',
+    seoFeat1Desc: 'Download videos from YouTube, TikTok, Instagram, Facebook, and X/Twitter directly in crisp MP4 HD quality with zero ads or watermarks.',
+    seoFeat2Title: 'Direct MP3 Audio Extractor',
+    seoFeat2Desc: 'Convert and download audio tracks, lectures, and podcasts in high-bitrate MP3 format with a single tap on mobile or desktop.',
+    seoFeat3Title: 'Full Playlist Batch Downloader',
+    seoFeat3Desc: 'Paste any playlist link, select all or specific items, and download the entire playlist at once as MP4 videos or MP3 audio.',
+    seoFaqTitle: 'Frequently Asked Questions (FAQ)',
+    seoFaq1Q: 'How do I download a video or MP3 audio for free on phone or PC?',
+    seoFaq1A: 'Copy the media link from YouTube or any supported platform, paste it into the input box above and tap "Analyze", choose "Video" or "Audio Only (MP3)", then tap "Start Download" to save it directly to your device.',
+    seoFaq2Q: 'How can I download an entire playlist as MP4 video or MP3 audio?',
+    seoFaq2A: 'When you paste a playlist URL and tap "Analyze", Bagback Download automatically lists all playlist items. Select "Entire Playlist", choose Video (MP4) or Audio Only (MP3), and download all selected items together.',
+    seoFaq3Q: 'How do I install Bagback Download as an app on Android and iPhone?',
+    seoFaq3A: 'Tap the "Install App" or "Install Now" button at the top of the page to add Bagback Download to your home screen as a fast standalone PWA with native share-sheet integration.',
   }
 } as const;
 
