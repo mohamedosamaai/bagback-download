@@ -98,7 +98,8 @@ body {
   -webkit-backdrop-filter: blur(16px);
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 40;
+  padding-top: env(safe-area-inset-top, 0px);
   transition: border-color 0.2s;
 }
 
@@ -164,6 +165,7 @@ body {
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
+  min-height: 40px;
   border-radius: var(--r-full);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);
@@ -173,6 +175,7 @@ body {
   font-family: inherit;
   cursor: pointer;
   transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .nav-btn:hover {
@@ -181,8 +184,91 @@ body {
   border-color: var(--border-strong);
 }
 
+.nav-btn.install-nav-btn {
+  background: var(--brand-green-dim);
+  border-color: var(--brand-green-border);
+  color: var(--text-green);
+  font-weight: 600;
+}
+
+.nav-btn.install-nav-btn:hover {
+  background: var(--brand-green);
+  color: #031409;
+  border-color: var(--brand-green);
+}
+
 .nav-link {
   text-decoration: none;
+}
+
+/* ── PWA Mobile Install Banner ───────────────────── */
+.pwa-install-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--brand-green-border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-card);
+  animation: fadeIn 0.25s ease-out;
+}
+
+.pwa-banner-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pwa-banner-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-md);
+  object-fit: contain;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+}
+
+.pwa-banner-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.pwa-banner-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.35;
+  margin-bottom: 2px;
+}
+
+.pwa-banner-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.pwa-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.pwa-install-cta {
+  padding: 9px 16px;
+  min-height: 44px;
+  font-size: 13px;
+}
+
+.pwa-dismiss-btn {
+  min-width: 44px;
+  min-height: 44px;
 }
 
 /* ── Main Content ─────────────────────────────────── */
@@ -928,7 +1014,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  z-index: 1000;
+  z-index: 60;
   animation: fadeIn 0.2s ease-out;
 }
 
@@ -941,7 +1027,7 @@ body {
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.8);
+  box-shadow: var(--shadow-card);
   animation: fadeInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -984,45 +1070,124 @@ body {
 
 /* ── Responsive for Phone Form Factor ─────────────── */
 @media (max-width: 640px) {
+  .main {
+    padding: 16px 0 40px;
+  }
+  .container {
+    padding: 0 12px;
+  }
+  .header-inner {
+    padding: 10px 12px;
+  }
+  .header-nav {
+    gap: 6px;
+  }
+  .header-nav .nav-link {
+    display: none;
+  }
+  .nav-btn {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+  .pwa-install-banner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+  .pwa-banner-actions {
+    width: 100%;
+  }
+  .pwa-install-cta {
+    flex: 1;
+  }
+  .hero {
+    margin-bottom: 18px;
+    padding-top: 4px;
+  }
   .hero h1 {
-    font-size: 26px;
+    font-size: 24px;
+    margin-bottom: 6px;
+  }
+  .hero-desc {
+    font-size: 13px;
+  }
+  .input-card,
+  .analyze-result {
+    padding: 16px;
+    border-radius: var(--r-lg);
   }
   .url-input-wrap {
     flex-direction: column;
+    gap: 10px;
+  }
+  .url-input {
+    font-size: 16px;
+    min-height: 48px;
   }
   .url-input-wrap .btn {
     width: 100%;
+    min-height: 48px;
   }
   .options-row {
     flex-direction: column;
     align-items: stretch;
   }
+  .options-row.tabs-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
   .option-chip {
     justify-content: center;
+    min-height: 44px;
+    font-size: 12.5px;
   }
   .media-preview {
-    flex-direction: column;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
   }
   .media-thumb {
-    width: 100%;
-    height: 140px;
+    width: 96px;
+    height: 64px;
+  }
+  .formats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .format-option {
+    min-height: 44px;
+  }
+  .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .completed-action-row .btn-save-device {
+    min-height: 44px;
   }
   .history-grid {
     grid-template-columns: 1fr;
   }
-  .header-nav {
-    gap: 6px;
-  }
-  .header-nav .nav-link:not(:first-child) {
-    display: none;
+  .footer {
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   }
   .footer-inner {
     flex-direction: column;
     text-align: center;
-    gap: 16px;
+    gap: 12px;
   }
   .footer-links {
     justify-content: center;
+    gap: 10px;
+  }
+  .footer-links a,
+  .footer-link-btn {
+    min-height: 44px;
+    padding: 0 6px;
+    display: inline-flex;
+    align-items: center;
   }
 }
 

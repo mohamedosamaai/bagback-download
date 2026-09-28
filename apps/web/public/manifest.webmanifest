@@ -1,30 +1,47 @@
 {
-  "name": "Bagback Download",
+  "id": "/",
+  "name": "Bagback Download — تحميل الفيديو والصوت",
   "short_name": "Bagback",
-  "description": "Free open-source media manager by Bagback Tech.",
-  "start_url": "/",
+  "description": "تطبيق ومدير تحميل الفيديو والصوت وقوائم التشغيل مجاناً بجودة عالية MP4 و MP3 — Free Open-Source Video, Audio & Playlist Downloader by Bagback Digital Solutions.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f2faed",
-  "theme_color": "#123524",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#070908",
+  "theme_color": "#070908",
   "orientation": "portrait-primary",
   "lang": "ar",
   "dir": "rtl",
+  "categories": ["utilities", "multimedia", "productivity"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/apple-icon.png",
       "sizes": "180x180",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/logo-symbol.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }
