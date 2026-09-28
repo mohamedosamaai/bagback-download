@@ -4,7 +4,6 @@ import { spawn, spawnSync } from 'child_process';
 import { randomUUID as uuidv4 } from 'crypto';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import https from 'https';
 import http from 'http';
 import tls from 'tls';
@@ -13,7 +12,7 @@ import type { Job, FormatInfo, PlaylistItem } from '@bagback-download/core';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.join(os.tmpdir(), 'bagback-downloads');
+const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.resolve(__dirname, '..', 'downloads');
 const STATIC_DIR = process.env.STATIC_DIR || path.join(__dirname, '..', 'static');
 
 if (!fs.existsSync(DOWNLOAD_DIR)) {
@@ -228,7 +227,7 @@ function proxyHttpRequest(
       if (res.statusCode !== 200) {
         return finish({ err: `connect ${res.statusCode}` });
       }
-      ts = tls.connect({ socket: s, servername: u.host, rejectUnauthorized: false }, () => {
+      ts = tls.connect({ socket: s, servername: u.host }, () => {
         let reqStr = `${opts.method || 'GET'} ${u.pathname}${u.search} HTTP/1.0\r\nHost: ${u.host}\r\n`;
         for (const [k, v] of Object.entries(opts.headers || {})) {
           reqStr += `${k}: ${v}\r\n`;
@@ -1182,10 +1181,10 @@ async function downloadYouTubeDirectAndroid(
 
   if (audioOnly && ffmpegAvailable) {
     const tempMp4 = path.join(DOWNLOAD_DIR, `tmp-${id}.mp4`);
-    const finalMp3 = path.join(DOWNLOAD_DIR, `${id}-${safeTitle}.mp3`);
+    const finalMp3 = path.join(DOWNLOAD_DIR, `${id}-audio.mp3`);
     try {
       fs.writeFileSync(tempMp4, fullBuffer);
-      updateJob(id, { progress: 96 });
+      updateJob(id, { progress: 96, fileName: `${safeTitle}.mp3` });
       const converted = await convertMp4ToMp3(tempMp4, finalMp3);
       try { fs.unlinkSync(tempMp4); } catch {}
       if (converted) {
@@ -1197,7 +1196,8 @@ async function downloadYouTubeDirectAndroid(
     }
   }
 
-  const finalMp4 = path.join(DOWNLOAD_DIR, `${id}-${safeTitle}.mp4`);
+  const finalMp4 = path.join(DOWNLOAD_DIR, `${id}-video.mp4`);
+  updateJob(id, { fileName: `${safeTitle}.mp4` });
   fs.writeFileSync(finalMp4, fullBuffer);
   return { success: true, lastError: '' };
 }
@@ -1443,7 +1443,7 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
       status: 'completed',
       progress: 100,
       filePath,
-      fileName: extractedName,
+      fileName: currentJob?.fileName || extractedName,
       title: currentJob?.title || extractedName.replace(/\.[^/.]+$/, ''),
       fileSize: stat.size,
     });
