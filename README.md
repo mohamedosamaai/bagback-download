@@ -26,7 +26,7 @@
 
 **Bagback Download** is a fast, privacy-focused, open-source universal media and file download manager. It combines a responsive React Progressive Web App (PWA) hosted on **Firebase Hosting** with a containerized Node.js / Express extraction backend running `yt-dlp` and `FFmpeg` on **Google Cloud Run** (or standalone Docker).
 
-All media extraction and stream multiplexing run in isolated temporary buffers with real-time Server-Sent Events (SSE) progress updates and automatic post-delivery cleanup—ensuring zero user tracking, zero analytics cookies, and zero permanent media retention.
+All media extraction and stream multiplexing run in isolated temporary buffers with real-time Server-Sent Events (SSE) progress updates, durable Google Cloud Storage Signed URL delivery for large files (supporting pause/resume and bypassing serverless HTTP response size caps), and automatic 2-hour post-delivery cleanup—ensuring zero user tracking, zero analytics cookies, and zero permanent media retention.
 
 ### Key Capabilities
 
@@ -59,6 +59,7 @@ graph TB
         YtDlp["yt-dlp Extraction Process Pool"]
         FFmpeg["FFmpeg Audio/Video Multiplexer"]
         TempDisk["Isolated Ephemeral Buffer (/downloads)"]
+        GCS["Cloud Storage Buffer & Signed URLs (Optional GCS_BUCKET)"]
     end
 
     subgraph Workspaces ["Shared Monorepo Packages"]
@@ -174,10 +175,15 @@ npm run web:dev
    ```bash
    gcloud run deploy bagback-download \
      --source . \
-     --region me-central1 \
+     --region us-central1 \
+     --service-account firebase-app-hosting-compute@<YOUR_GCP_PROJECT_ID>.iam.gserviceaccount.com \
+     --update-env-vars GCS_BUCKET=bagback-download-media-prod \
      --allow-unauthenticated \
      --port 4000 \
-     --memory 1Gi
+     --cpu 2 \
+     --memory 2Gi \
+     --timeout 300 \
+     --max-instances 5
    ```
 2. **Build & Deploy the Frontend PWA to Firebase Hosting**:
    ```bash

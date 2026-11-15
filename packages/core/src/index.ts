@@ -10,6 +10,8 @@ export interface Job {
   filePath?: string;
   fileName?: string;
   fileSize?: number;
+  gcsObject?: string;
+  contentType?: string;
   error?: string;
   createdAt: string;
   updatedAt: string;

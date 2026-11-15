@@ -8,18 +8,203 @@ import https from 'https';
 import http from 'http';
 import tls from 'tls';
 import rateLimit from 'express-rate-limit';
+import { Storage, Bucket } from '@google-cloud/storage';
 import type { Job, FormatInfo, PlaylistItem } from '@bagback-download/core';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.resolve(__dirname, '..', 'downloads');
 const STATIC_DIR = process.env.STATIC_DIR || path.join(__dirname, '..', 'static');
+const GCS_BUCKET_NAME = (process.env.GCS_BUCKET || '').trim();
+const JOB_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 if (!fs.existsSync(DOWNLOAD_DIR)) {
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 }
 
+const gcsBucket: Bucket | null = GCS_BUCKET_NAME ? new Storage().bucket(GCS_BUCKET_NAME) : null;
 const jobs = new Map<string, Job>();
+const lastGcsSyncAt = new Map<string, number>();
+let gcsListCache: { jobs: Job[]; fetchedAt: number } = { jobs: [], fetchedAt: 0 };
+
+/** Validates that a job ID is strictly a UUID v4-formatted identifier. */
+function isValidJobId(id: string | undefined): id is string {
+  return typeof id === 'string' && UUID_RE.test(id);
+}
+
+/** Resolves the MIME type from a media filename or path extension. */
+function getMediaContentType(fileNameOrPath: string): string {
+  const ext = path.extname(fileNameOrPath).slice(1).toLowerCase();
+  const mimeMap: Record<string, string> = {
+    mp4: 'video/mp4',
+    mp3: 'audio/mpeg',
+    webm: 'video/webm',
+    mkv: 'video/x-matroska',
+    m4a: 'audio/mp4',
+    mov: 'video/quicktime',
+    aac: 'audio/aac',
+    ogg: 'audio/ogg',
+    opus: 'audio/opus',
+    wav: 'audio/wav',
+  };
+  return mimeMap[ext] || 'application/octet-stream';
+}
+
+/** Builds an RFC 5987 attachment Content-Disposition header safe against header injection. */
+function buildContentDisposition(rawFileName: string): string {
+  const sanitized = (rawFileName || 'download').replace(/[\r\n\x00-\x1F"/\\]+/g, '_').trim() || 'download';
+  const ext = path.extname(sanitized).replace(/[^a-zA-Z0-9.]/g, '');
+  const asciiFallback = sanitized.replace(/[^\x20-\x7E]/g, '').replace(/[";]+/g, '_').trim() || `bagback-download${ext}`;
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(sanitized)}`;
+}
+
+/** Verifies and resolves a local downloaded file path strictly inside DOWNLOAD_DIR for a validated job ID. */
+function resolveSafeLocalFile(id: string, filePath?: string): string | null {
+  if (!isValidJobId(id) || !filePath) return null;
+  const resolvedRoot = path.resolve(DOWNLOAD_DIR);
+  const resolvedTarget = path.resolve(filePath);
+  if (!resolvedTarget.startsWith(resolvedRoot + path.sep)) return null;
+  if (!path.basename(resolvedTarget).startsWith(`${id}-`)) return null;
+  return fs.existsSync(resolvedTarget) ? resolvedTarget : null;
+}
+
+/** Serializes a job without exposing internal server filesystem paths. */
+function sanitizeJobForClient(job: Job): Job {
+  const { filePath: _omit, ...safeJob } = job;
+  return safeJob;
+}
+
+/** Persists job metadata to GCS when GCS_BUCKET is configured, throttling intermediate progress writes. */
+async function syncJobToGcs(job: Job, immediate = false): Promise<void> {
+  if (!gcsBucket || !isValidJobId(job.id)) return;
+  const now = Date.now();
+  const prevSync = lastGcsSyncAt.get(job.id) || 0;
+  if (!immediate && job.status === 'running' && now - prevSync < 3500) {
+    return;
+  }
+  lastGcsSyncAt.set(job.id, now);
+  try {
+    const payload = sanitizeJobForClient(job);
+    await gcsBucket.file(`jobs/${job.id}.json`).save(JSON.stringify(payload), {
+      contentType: 'application/json',
+      resumable: false,
+      metadata: { cacheControl: 'no-store' },
+    });
+    gcsListCache.fetchedAt = 0;
+  } catch (err: any) {
+    console.warn(`[GCS] Failed syncing job ${job.id}:`, err?.message || err);
+  }
+}
+
+/** Loads a single job record from GCS metadata if it is not present or stale in local memory. */
+async function loadJobFromGcs(id: string): Promise<Job | undefined> {
+  if (!gcsBucket || !isValidJobId(id)) return undefined;
+  try {
+    const file = gcsBucket.file(`jobs/${id}.json`);
+    const [exists] = await file.exists();
+    if (!exists) return undefined;
+    const [buf] = await file.download();
+    const parsed = JSON.parse(buf.toString('utf8')) as Job;
+    if (!parsed || !isValidJobId(parsed.id)) return undefined;
+    const local = jobs.get(id);
+    if (!local || new Date(parsed.updatedAt).getTime() >= new Date(local.updatedAt).getTime()) {
+      jobs.set(id, local?.filePath ? { ...parsed, filePath: local.filePath } : parsed);
+    }
+    return jobs.get(id);
+  } catch (err: any) {
+    console.warn(`[GCS] Failed loading job ${id}:`, err?.message || err);
+    return undefined;
+  }
+}
+
+/** Lists recent non-expired jobs from GCS across Cloud Run instances with a brief 2-second cache. */
+async function listJobsFromGcs(): Promise<Job[]> {
+  if (!gcsBucket) return [];
+  const now = Date.now();
+  if (now - gcsListCache.fetchedAt < 2000) {
+    return gcsListCache.jobs;
+  }
+  try {
+    const [files] = await gcsBucket.getFiles({ prefix: 'jobs/', maxResults: 50 });
+    const recentFiles = files.filter((f) => {
+      if (!/^jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/i.test(f.name)) {
+        return false;
+      }
+      const updated = f.metadata?.updated ? new Date(f.metadata.updated).getTime() : now;
+      return now - updated <= JOB_MAX_AGE_MS;
+    });
+    const loaded: Job[] = [];
+    for (let i = 0; i < recentFiles.length; i += 10) {
+      const batch = recentFiles.slice(i, i + 10);
+      const results = await Promise.all(
+        batch.map(async (f) => {
+          try {
+            const [buf] = await f.download();
+            const parsed = JSON.parse(buf.toString('utf8')) as Job;
+            return parsed && isValidJobId(parsed.id) ? parsed : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      for (const item of results) {
+        if (item) loaded.push(item);
+      }
+    }
+    gcsListCache = { jobs: loaded, fetchedAt: Date.now() };
+    return loaded;
+  } catch (err: any) {
+    console.warn('[GCS] Failed listing jobs:', err?.message || err);
+    return gcsListCache.jobs;
+  }
+}
+
+/** Merges local in-memory jobs with shared GCS job records ordered newest first. */
+async function getMergedJobsList(): Promise<Job[]> {
+  const merged = new Map<string, Job>();
+  if (gcsBucket) {
+    const remoteJobs = await listJobsFromGcs();
+    for (const r of remoteJobs) {
+      merged.set(r.id, r);
+    }
+  }
+  for (const [id, local] of jobs.entries()) {
+    const existing = merged.get(id);
+    if (!existing || new Date(local.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
+      merged.set(id, sanitizeJobForClient(local));
+    }
+  }
+  return Array.from(merged.values()).sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+}
+
+/** Deletes both local temporary files and GCS objects for a job ID. */
+async function deleteJobArtifacts(id: string, job?: Job): Promise<void> {
+  if (!isValidJobId(id)) return;
+  const localSafe = resolveSafeLocalFile(id, job?.filePath);
+  if (localSafe) {
+    try { fs.unlinkSync(localSafe); } catch {}
+  }
+  if (fs.existsSync(DOWNLOAD_DIR)) {
+    try {
+      for (const f of fs.readdirSync(DOWNLOAD_DIR)) {
+        if (f.startsWith(`${id}-`)) {
+          try { fs.unlinkSync(path.join(DOWNLOAD_DIR, f)); } catch {}
+        }
+      }
+    } catch {}
+  }
+  lastGcsSyncAt.delete(id);
+  if (gcsBucket) {
+    gcsListCache.fetchedAt = 0;
+    await Promise.allSettled([
+      gcsBucket.file(`jobs/${id}.json`).delete({ ignoreNotFound: true }),
+      gcsBucket.deleteFiles({ prefix: `media/${id}/`, force: true }).catch(() => {}),
+    ]);
+  }
+}
 
 const allowedOrigins = (
   process.env.CORS_ORIGIN ||
@@ -37,31 +222,41 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: ['GET', 'POST', 'DELETE'],
+  methods: ['GET', 'HEAD', 'POST', 'DELETE'],
 }));
 app.use(express.json());
+app.use('/api', (_req: Request, res: Response, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
 
 let sseClients: { id: number; res: Response }[] = [];
 
 function broadcastJobs() {
-  const list = Array.from(jobs.values()).sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  const list = Array.from(jobs.values())
+    .map(sanitizeJobForClient)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const data = `data: ${JSON.stringify(list)}\n\n`;
-  sseClients.forEach((client) => {
+  sseClients = sseClients.filter((client) => {
     try {
       client.res.write(data);
+      return true;
     } catch (err) {
       console.error('[SSE] Broadcast error', err);
+      return false;
     }
   });
 }
 
-function updateJob(id: string, patch: Partial<Job>) {
+function updateJob(id: string, patch: Partial<Job>, syncImmediate = false) {
   const job = jobs.get(id);
   if (!job) return;
-  jobs.set(id, { ...job, ...patch, updatedAt: new Date().toISOString() });
+  const statusChanged = Boolean(patch.status && patch.status !== job.status);
+  const updated: Job = { ...job, ...patch, updatedAt: new Date().toISOString() };
+  jobs.set(id, updated);
   broadcastJobs();
+  void syncJobToGcs(updated, syncImmediate || statusChanged);
 }
 
 function getCustomProxy(): string | undefined {
@@ -596,12 +791,12 @@ function sanitizeErrorMessage(rawError: string, _url: string): string {
 // ─── Rate Limiter ───────────────────────────────────────────────────────────
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 120, // Limit each IP to 120 requests per 15 minutes
+  max: 300, // Limit each IP to 300 API requests per 15 minutes
   message: { error: 'Too many requests from this IP, please try again after 15 minutes' },
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.set('trust proxy', 1);
+app.set('trust proxy', 2);
 
 // ─── Routes ───────────────────────────────────────────────────────────────
 
@@ -893,6 +1088,7 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
         updatedAt: timestamp,
       };
       jobs.set(id, job);
+      void syncJobToGcs(job, true);
       ids.push(id);
       pendingQueue.push({ id, url: itemUrl, format, audioOnly });
     });
@@ -932,6 +1128,7 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
           updatedAt: timestamp,
         };
         jobs.set(id, job);
+        void syncJobToGcs(job, true);
         ids.push(id);
         pendingQueue.push({ id, url: item.url, format, audioOnly });
       });
@@ -955,6 +1152,7 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
     updatedAt: now,
   };
   jobs.set(id, job);
+  void syncJobToGcs(job, true);
   pendingQueue.push({ id, url, format, audioOnly });
   broadcastJobs();
   processDownloadQueue();
@@ -1074,7 +1272,7 @@ async function downloadYouTubeDirectAndroid(
   }
 
   const totalLen = parseInt(f18.contentLength || '0', 10);
-  let fullBuffer: Buffer;
+  const rawTempMp4 = path.join(DOWNLOAD_DIR, `tmp-${id}.mp4`);
 
   if (totalLen > 0) {
     const chunkSize = 3000000; // 3 MB per range chunk
@@ -1085,7 +1283,7 @@ async function downloadYouTubeDirectAndroid(
       ranges.push({ idx: idx++, start, end });
     }
 
-    const chunkBuffers: Buffer[] = new Array(ranges.length);
+    const chunkDone: boolean[] = new Array(ranges.length).fill(false);
     const chunkBytes: number[] = new Array(ranges.length).fill(0);
     let lastProgressReport = 0;
 
@@ -1098,63 +1296,68 @@ async function downloadYouTubeDirectAndroid(
       updateJob(id, { progress: pct });
     };
 
+    const fileHandle = await fs.promises.open(rawTempMp4, 'w+');
     let cursor = 0;
     let failedError = '';
 
-    const worker = async () => {
-      while (cursor < ranges.length && !failedError) {
-        const item = ranges[cursor++];
-        const expectedLen = item.end - item.start + 1;
-        let chunkOk = false;
-        let lastChunkErr = '';
+    try {
+      const worker = async () => {
+        while (cursor < ranges.length && !failedError) {
+          const item = ranges[cursor++];
+          const expectedLen = item.end - item.start + 1;
+          let chunkOk = false;
+          let lastChunkErr = '';
 
-        for (let attempt = 0; attempt < 2 && !chunkOk && !failedError; attempt++) {
-          chunkBytes[item.idx] = 0;
-          const res = await proxyHttpRequest(
-            host,
-            port,
-            `${f18.url}&range=${item.start}-${item.end}`,
-            {
-              headers: { 'User-Agent': ANDROID_USER_AGENT },
-              connectTimeout: 4000,
-              timeout: 30000,
-              onProgress: (bytesRead) => {
-                chunkBytes[item.idx] = Math.min(expectedLen, bytesRead);
-                reportProgress();
-              },
+          for (let attempt = 0; attempt < 2 && !chunkOk && !failedError; attempt++) {
+            chunkBytes[item.idx] = 0;
+            const res = await proxyHttpRequest(
+              host,
+              port,
+              `${f18.url}&range=${item.start}-${item.end}`,
+              {
+                headers: { 'User-Agent': ANDROID_USER_AGENT },
+                connectTimeout: 4000,
+                timeout: 30000,
+                onProgress: (bytesRead) => {
+                  chunkBytes[item.idx] = Math.min(expectedLen, bytesRead);
+                  reportProgress();
+                },
+              }
+            );
+
+            if (
+              res.body &&
+              res.body.length === expectedLen &&
+              res.statusLine &&
+              (res.statusLine.includes(' 200 ') || res.statusLine.includes(' 206 '))
+            ) {
+              await fileHandle.write(res.body, 0, res.body.length, item.start);
+              chunkDone[item.idx] = true;
+              chunkBytes[item.idx] = expectedLen;
+              reportProgress();
+              chunkOk = true;
+            } else {
+              lastChunkErr = res.err || res.statusLine || 'Incomplete chunk';
             }
-          );
+          }
 
-          if (
-            res.body &&
-            res.body.length === expectedLen &&
-            res.statusLine &&
-            (res.statusLine.includes(' 200 ') || res.statusLine.includes(' 206 '))
-          ) {
-            chunkBuffers[item.idx] = res.body;
-            chunkBytes[item.idx] = expectedLen;
-            reportProgress();
-            chunkOk = true;
-          } else {
-            lastChunkErr = res.err || res.statusLine || 'Incomplete chunk';
+          if (!chunkOk) {
+            failedError = lastChunkErr || 'Chunk download failed';
+            return;
           }
         }
+      };
 
-        if (!chunkOk) {
-          failedError = lastChunkErr || 'Chunk download failed';
-          return;
-        }
-      }
-    };
-
-    const concurrency = Math.min(4, ranges.length);
-    await Promise.all(Array.from({ length: concurrency }, () => worker()));
-
-    if (failedError || chunkBuffers.some((b) => !b)) {
-      return { success: false, lastError: failedError || 'Stream chunk failed' };
+      const concurrency = Math.min(4, ranges.length);
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    } finally {
+      await fileHandle.close();
     }
 
-    fullBuffer = Buffer.concat(chunkBuffers);
+    if (failedError || chunkDone.some((ok) => !ok)) {
+      try { fs.unlinkSync(rawTempMp4); } catch {}
+      return { success: false, lastError: failedError || 'Stream chunk failed' };
+    }
   } else {
     const res = await proxyHttpRequest(host, port, f18.url, {
       headers: { 'User-Agent': ANDROID_USER_AGENT },
@@ -1169,7 +1372,7 @@ async function downloadYouTubeDirectAndroid(
     ) {
       return { success: false, lastError: res.err || res.statusLine || 'Stream download failed' };
     }
-    fullBuffer = res.body;
+    fs.writeFileSync(rawTempMp4, res.body);
   }
 
   const rawTitle = videoTitle || jobs.get(id)?.title || 'video';
@@ -1180,25 +1383,23 @@ async function downloadYouTubeDirectAndroid(
       .slice(0, 80) || 'video';
 
   if (audioOnly && ffmpegAvailable) {
-    const tempMp4 = path.join(DOWNLOAD_DIR, `tmp-${id}.mp4`);
     const finalMp3 = path.join(DOWNLOAD_DIR, `${id}-audio.mp3`);
     try {
-      fs.writeFileSync(tempMp4, fullBuffer);
       updateJob(id, { progress: 96, fileName: `${safeTitle}.mp3` });
-      const converted = await convertMp4ToMp3(tempMp4, finalMp3);
-      try { fs.unlinkSync(tempMp4); } catch {}
+      const converted = await convertMp4ToMp3(rawTempMp4, finalMp3);
+      try { fs.unlinkSync(rawTempMp4); } catch {}
       if (converted) {
         return { success: true, lastError: '' };
       }
     } catch (e: any) {
-      try { fs.unlinkSync(tempMp4); } catch {}
+      try { fs.unlinkSync(rawTempMp4); } catch {}
       return { success: false, lastError: e?.message || 'Audio conversion failed' };
     }
   }
 
   const finalMp4 = path.join(DOWNLOAD_DIR, `${id}-video.mp4`);
   updateJob(id, { fileName: `${safeTitle}.mp4` });
-  fs.writeFileSync(finalMp4, fullBuffer);
+  fs.renameSync(rawTempMp4, finalMp4);
   return { success: true, lastError: '' };
 }
 
@@ -1439,131 +1640,262 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
     const stat = fs.statSync(filePath);
     const extractedName = validFile.replace(`${id}-`, '');
     const currentJob = jobs.get(id);
+    const finalFileName = currentJob?.fileName || extractedName;
+    const finalTitle = currentJob?.title || extractedName.replace(/\.[^/.]+$/, '');
+    const contentType = getMediaContentType(finalFileName || validFile);
+
+    if (gcsBucket) {
+      updateJob(id, { progress: 98, fileName: finalFileName, title: finalTitle });
+      const rawExt = path.extname(validFile) || path.extname(finalFileName) || '.mp4';
+      const safeExt = /^\.[a-zA-Z0-9]{1,8}$/.test(rawExt) ? rawExt.toLowerCase() : '.mp4';
+      const gcsObject = `media/${id}/${id}${safeExt}`;
+      let uploaded = false;
+      for (let attempt = 0; attempt < 2 && !uploaded; attempt++) {
+        try {
+          await gcsBucket.upload(filePath, {
+            destination: gcsObject,
+            resumable: stat.size > 5 * 1024 * 1024,
+            metadata: {
+              contentType,
+              cacheControl: 'private, max-age=3600',
+            },
+          });
+          uploaded = true;
+        } catch (uploadErr: any) {
+          console.error(`[GCS] Upload failed (attempt ${attempt + 1}) for ${id}:`, uploadErr?.message || uploadErr);
+        }
+      }
+
+      if (uploaded) {
+        try { fs.unlinkSync(filePath); } catch {}
+        const baseJob = jobs.get(id);
+        if (baseJob) {
+          const completedJob: Job = {
+            ...baseJob,
+            status: 'completed',
+            progress: 100,
+            filePath: undefined,
+            gcsObject,
+            contentType,
+            fileName: finalFileName,
+            title: finalTitle,
+            fileSize: stat.size,
+            updatedAt: new Date().toISOString(),
+          };
+          jobs.set(id, completedJob);
+          await syncJobToGcs(completedJob, true);
+          broadcastJobs();
+        }
+        return;
+      }
+    }
+
     updateJob(id, {
       status: 'completed',
       progress: 100,
       filePath,
-      fileName: currentJob?.fileName || extractedName,
-      title: currentJob?.title || extractedName.replace(/\.[^/.]+$/, ''),
+      contentType,
+      fileName: finalFileName,
+      title: finalTitle,
       fileSize: stat.size,
-    });
+    }, true);
   } else if (success) {
-    updateJob(id, { status: 'completed', progress: 100 });
+    updateJob(id, { status: 'completed', progress: 100 }, true);
   } else {
     updateJob(id, {
       status: 'failed',
       error: sanitizeErrorMessage(lastError, url),
-    });
+    }, true);
   }
 }
 
-app.get('/api/jobs', (_req: Request, res: Response) => {
-  const list = Array.from(jobs.values()).sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+app.get('/api/jobs', async (_req: Request, res: Response) => {
+  const list = await getMergedJobsList();
   res.json(list);
 });
 
-app.get('/api/jobs/stream', (req: Request, res: Response) => {
+app.get('/api/jobs/stream', async (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Cache-Control', 'no-store, no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
+  res.write('retry: 2000\n\n');
 
-  // Send the initial list immediately
-  const list = Array.from(jobs.values()).sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  // Hydrate shared state so reconnects across Cloud Run instances preserve active/completed jobs
+  const list = await getMergedJobsList();
+  for (const j of list) {
+    if (!jobs.has(j.id)) {
+      jobs.set(j.id, j);
+    }
+  }
   res.write(`data: ${JSON.stringify(list)}\n\n`);
 
-  const clientId = Date.now();
+  const clientId = Date.now() + Math.random();
   const newClient = { id: clientId, res };
   sseClients.push(newClient);
 
+  let closed = false;
   const heartbeatTimer = setInterval(() => {
     try {
       res.write(': heartbeat\n\n');
     } catch {
-      clearInterval(heartbeatTimer);
+      cleanup();
     }
   }, 15000);
 
-  req.on('close', () => {
+  // Gracefully end SSE stream before Firebase Hosting's 60s reverse-proxy timeout
+  const maxLifetimeTimer = setTimeout(() => {
+    cleanup();
+    try { res.end(); } catch {}
+  }, 45000);
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
     clearInterval(heartbeatTimer);
+    clearTimeout(maxLifetimeTimer);
     sseClients = sseClients.filter((client) => client.id !== clientId);
-  });
+  };
+
+  req.on('close', cleanup);
+  res.on('close', cleanup);
 });
 
-app.get('/api/jobs/:id', apiLimiter, (req: Request, res: Response) => {
-  const job = jobs.get(req.params.id);
+app.get('/api/jobs/:id', apiLimiter, async (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (!isValidJobId(id)) {
+    res.status(400).json({ error: 'Invalid job ID' });
+    return;
+  }
+  const job = jobs.get(id) || (await loadJobFromGcs(id));
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
     return;
   }
-  res.json(job);
+  res.json(sanitizeJobForClient(job));
 });
 
-app.get('/api/jobs/:id/file', apiLimiter, (req: Request, res: Response) => {
-  const job = jobs.get(req.params.id);
-  if (!job || job.status !== 'completed' || !job.filePath) {
+app.get('/api/jobs/:id/file', apiLimiter, async (req: Request, res: Response) => {
+  const id = req.params.id;
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Vary', 'Origin');
+
+  if (!isValidJobId(id)) {
+    res.status(400).json({ error: 'Invalid job ID' });
+    return;
+  }
+
+  let job = jobs.get(id);
+  if (!job || (job.status !== 'completed' && gcsBucket)) {
+    const remote = await loadJobFromGcs(id);
+    if (remote) job = remote;
+  }
+
+  if (!job || job.status !== 'completed') {
     res.status(404).json({ error: 'File not ready' });
     return;
   }
-  if (!fs.existsSync(job.filePath)) {
-    res.status(404).json({ error: 'File not found on disk' });
+
+  const downloadName = job.fileName || `${job.title || 'download'}.mp4`;
+  const contentType = job.contentType || getMediaContentType(downloadName);
+  const disposition = buildContentDisposition(downloadName);
+
+  // 1. Primary cloud path: redirect directly to short-lived GCS Signed URL (supports unlimited size + Range resume)
+  if (gcsBucket && job.gcsObject) {
+    try {
+      const gcsFile = gcsBucket.file(job.gcsObject);
+      const [exists] = await gcsFile.exists();
+      if (exists) {
+        const [signedUrl] = await gcsFile.getSignedUrl({
+          version: 'v4',
+          action: 'read',
+          expires: Date.now() + 2 * 60 * 60 * 1000,
+          responseDisposition: disposition,
+          responseType: contentType,
+        });
+        const parsed = new URL(signedUrl);
+        if (parsed.protocol === 'https:' && parsed.hostname === 'storage.googleapis.com') {
+          res.redirect(302, parsed.toString());
+          return;
+        }
+      }
+    } catch (err: any) {
+      console.error(`[GCS] Signed URL generation failed for ${id}:`, err?.message || err);
+    }
+  }
+
+  // 2. Local / Docker disk fallback with full HTTP 206 Range + HEAD support
+  const safeLocalPath = resolveSafeLocalFile(id, job.filePath);
+  if (!safeLocalPath) {
+    res.status(404).json({ error: 'File not found on storage' });
     return;
   }
 
-  const stat = fs.statSync(job.filePath);
-  const ext = path.extname(job.filePath).slice(1);
-  const mimeMap: Record<string, string> = {
-    mp4: 'video/mp4',
-    mp3: 'audio/mpeg',
-    webm: 'video/webm',
-    mkv: 'video/x-matroska',
-    m4a: 'audio/mp4',
-  };
-  const contentType = mimeMap[ext] || 'application/octet-stream';
-
+  const stat = fs.statSync(safeLocalPath);
+  const totalSize = stat.size;
+  res.setHeader('Accept-Ranges', 'bytes');
   res.setHeader('Content-Type', contentType);
-  res.setHeader('Content-Length', stat.size);
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="${encodeURIComponent(job.fileName || 'download')}"`,
-  );
-  fs.createReadStream(job.filePath).pipe(res);
+  res.setHeader('Content-Disposition', disposition);
+
+  if (req.method === 'HEAD') {
+    res.setHeader('Content-Length', totalSize);
+    res.status(200).end();
+    return;
+  }
+
+  const rangeHeader = req.headers.range;
+  if (rangeHeader) {
+    const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
+    if (!match) {
+      res.setHeader('Content-Range', `bytes */${totalSize}`);
+      res.status(416).end();
+      return;
+    }
+    const start = match[1] ? parseInt(match[1], 10) : Math.max(0, totalSize - parseInt(match[2], 10));
+    const end = match[1] && match[2] ? Math.min(parseInt(match[2], 10), totalSize - 1) : totalSize - 1;
+    if (isNaN(start) || isNaN(end) || start > end || start >= totalSize) {
+      res.setHeader('Content-Range', `bytes */${totalSize}`);
+      res.status(416).end();
+      return;
+    }
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+    res.setHeader('Content-Length', end - start + 1);
+    fs.createReadStream(safeLocalPath, { start, end }).pipe(res);
+    return;
+  }
+
+  res.setHeader('Content-Length', totalSize);
+  fs.createReadStream(safeLocalPath).pipe(res);
 });
 
-app.delete('/api/jobs', apiLimiter, (_req: Request, res: Response) => {
-  for (const [id, job] of jobs.entries()) {
-    if (job.filePath && fs.existsSync(job.filePath)) {
-      try {
-        fs.unlinkSync(job.filePath);
-      } catch (e) {
-        console.error(`[Delete All] Error removing ${job.filePath}`, e);
-      }
-    }
+app.delete('/api/jobs', apiLimiter, async (_req: Request, res: Response) => {
+  const idsToDelete = new Set<string>(jobs.keys());
+  if (gcsBucket) {
+    const remote = await listJobsFromGcs();
+    for (const r of remote) idsToDelete.add(r.id);
   }
+  await Promise.all(Array.from(idsToDelete).map((id) => deleteJobArtifacts(id, jobs.get(id))));
   jobs.clear();
   broadcastJobs();
   res.json({ cleared: true });
 });
 
-app.delete('/api/jobs/:id', apiLimiter, (req: Request, res: Response) => {
-  const job = jobs.get(req.params.id);
+app.delete('/api/jobs/:id', apiLimiter, async (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (!isValidJobId(id)) {
+    res.status(400).json({ error: 'Invalid job ID' });
+    return;
+  }
+  const job = jobs.get(id) || (await loadJobFromGcs(id));
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
     return;
   }
-  if (job.filePath && fs.existsSync(job.filePath)) {
-    try {
-      fs.unlinkSync(job.filePath);
-    } catch (e) {
-      console.error(`[Delete Job] Error removing ${job.filePath}`, e);
-    }
-  }
-  jobs.delete(req.params.id);
+  await deleteJobArtifacts(id, job);
+  jobs.delete(id);
   broadcastJobs();
   res.json({ deleted: true });
 });
@@ -1583,24 +1915,27 @@ if (fs.existsSync(STATIC_DIR)) {
 // ─── Auto-Cleanup Job ──────────────────────────────────────────────────────────
 
 const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
-const MAX_AGE = 2 * 60 * 60 * 1000; // 2 hours
 
 setInterval(() => {
   const now = Date.now();
   console.log('[Cleanup] Running periodic cleanup job...');
   for (const [id, job] of jobs.entries()) {
     const jobAge = now - new Date(job.createdAt).getTime();
-    if (jobAge > MAX_AGE) {
+    if (jobAge > JOB_MAX_AGE_MS) {
       console.log(`[Cleanup] Deleting old job ${id}`);
-      if (job.filePath && fs.existsSync(job.filePath)) {
-        try {
-          fs.unlinkSync(job.filePath);
-        } catch (e) {
-          console.error(`[Cleanup] Error deleting file ${job.filePath}`, e);
-        }
-      }
+      void deleteJobArtifacts(id, job);
       jobs.delete(id);
     }
+  }
+  if (gcsBucket) {
+    void listJobsFromGcs().then((remote) => {
+      for (const r of remote) {
+        if (now - new Date(r.createdAt).getTime() > JOB_MAX_AGE_MS) {
+          void deleteJobArtifacts(r.id, r);
+          jobs.delete(r.id);
+        }
+      }
+    });
   }
 }, CLEANUP_INTERVAL);
 
@@ -1608,4 +1943,5 @@ app.listen(PORT, () => {
   console.log(`[Bagback Download Server] listening on port ${PORT}`);
   console.log(`[Bagback Download Server] download dir: ${DOWNLOAD_DIR}`);
   console.log(`[Bagback Download Server] static dir: ${STATIC_DIR}`);
+  console.log(`[Bagback Download Server] GCS bucket: ${GCS_BUCKET_NAME || 'disabled (local mode)'}`);
 });
