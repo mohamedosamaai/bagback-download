@@ -1776,7 +1776,7 @@ app.get('/api/jobs/:id', apiLimiter, async (req: Request, res: Response) => {
   res.json(sanitizeJobForClient(job));
 });
 
-app.get('/api/jobs/:id/file', async (req: Request, res: Response) => {
+app.get('/api/jobs/:id/file', apiLimiter, async (req: Request, res: Response) => {
   const id = req.params.id;
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
