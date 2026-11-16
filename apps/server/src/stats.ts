@@ -10,6 +10,7 @@ interface PersistedStatsState {
   totalDownloadsFailed: number;
   totalPlaylistsQueued: number;
   totalAutoSavedFiles: number;
+  totalZipBundles: number;
   totalBytesProcessed: number;
   totalDurationMs: number;
   durationSamples: number;
@@ -35,6 +36,7 @@ const state: PersistedStatsState = {
   totalDownloadsFailed: 0,
   totalPlaylistsQueued: 0,
   totalAutoSavedFiles: 0,
+  totalZipBundles: 0,
   totalBytesProcessed: 0,
   totalDurationMs: 0,
   durationSamples: 0,
@@ -80,6 +82,7 @@ function mergeRemoteState(remote: Partial<PersistedStatsState>): void {
   state.totalDownloadsFailed = Math.max(state.totalDownloadsFailed, Number(remote.totalDownloadsFailed) || 0);
   state.totalPlaylistsQueued = Math.max(state.totalPlaylistsQueued, Number(remote.totalPlaylistsQueued) || 0);
   state.totalAutoSavedFiles = Math.max(state.totalAutoSavedFiles, Number(remote.totalAutoSavedFiles) || 0);
+  state.totalZipBundles = Math.max(state.totalZipBundles, Number(remote.totalZipBundles) || 0);
   state.totalBytesProcessed = Math.max(state.totalBytesProcessed, Number(remote.totalBytesProcessed) || 0);
   state.totalDurationMs = Math.max(state.totalDurationMs, Number(remote.totalDurationMs) || 0);
   state.durationSamples = Math.max(state.durationSamples, Number(remote.durationSamples) || 0);
@@ -221,6 +224,11 @@ export function recordAutoSaveStat(filesSaved = 1): void {
   scheduleStatsSync();
 }
 
+export function recordZipBundleStat(): void {
+  state.totalZipBundles += 1;
+  scheduleStatsSync();
+}
+
 /** Builds a clean read-only UsageStats payload for the /api/stats telemetry endpoint. */
 export function getUsageStatsSnapshot(runtime: {
   activeDownloads: number;
@@ -242,6 +250,7 @@ export function getUsageStatsSnapshot(runtime: {
     totalDownloadsFailed: state.totalDownloadsFailed,
     totalPlaylistsQueued: state.totalPlaylistsQueued,
     totalAutoSavedFiles: state.totalAutoSavedFiles,
+    totalZipBundles: state.totalZipBundles,
     totalBytesProcessed: state.totalBytesProcessed,
     avgDurationMs:
       state.durationSamples > 0 ? Math.round(state.totalDurationMs / state.durationSamples) : 0,

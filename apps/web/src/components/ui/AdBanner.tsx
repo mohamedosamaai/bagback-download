@@ -12,6 +12,10 @@ const ADSENSE_SLOT_TOP = (import.meta.env.VITE_ADSENSE_SLOT_TOP || '').trim();
 const ADSENSE_SLOT_BOTTOM = (import.meta.env.VITE_ADSENSE_SLOT_BOTTOM || '').trim();
 const CUSTOM_SCRIPT_SRC = (import.meta.env.VITE_AD_SCRIPT_SRC || '').trim();
 const CUSTOM_CONTAINER_ID = (import.meta.env.VITE_AD_CONTAINER_ID || '').trim();
+const SPONSOR_TITLE = (import.meta.env.VITE_SPONSOR_TITLE || '').trim();
+const SPONSOR_DESC = (import.meta.env.VITE_SPONSOR_DESC || '').trim();
+const SPONSOR_URL = (import.meta.env.VITE_SPONSOR_URL || '').trim();
+const SPONSOR_CTA = (import.meta.env.VITE_SPONSOR_CTA || '').trim();
 
 function isValidAdsenseClient(val: string): boolean {
   return /^ca-pub-\d{10,20}$/.test(val);
@@ -50,6 +54,11 @@ export function AdBanner({ position, t }: AdBannerProps) {
     isSafeHttpsScript(CUSTOM_SCRIPT_SRC) &&
     isSafeDomId(CUSTOM_CONTAINER_ID);
 
+  const sponsorReady =
+    AD_PROVIDER === 'sponsor' &&
+    SPONSOR_TITLE.length >= 2 &&
+    isSafeHttpsScript(SPONSOR_URL);
+
   const pushedRef = useRef(false);
 
   useEffect(() => {
@@ -84,14 +93,14 @@ export function AdBanner({ position, t }: AdBannerProps) {
     }
   }, [adsenseReady, customReady, position]);
 
-  if (!adsenseReady && (!customReady || position !== 'bottom')) {
+  if (!adsenseReady && (!customReady || position !== 'bottom') && (!sponsorReady || position !== 'bottom')) {
     return null;
   }
 
   return (
-    <aside className="ad-slot-card" aria-label={t('adLabel')}>
+    <aside className="ad-slot-card" aria-label={sponsorReady ? t('sponsorLabel') : t('adLabel')}>
       <div className="ad-slot-header">
-        <span className="ad-badge">{t('adLabel')}</span>
+        <span className="ad-badge">{sponsorReady ? t('sponsorLabel') : t('adLabel')}</span>
       </div>
       <div className="ad-slot-frame">
         {adsenseReady ? (
@@ -103,6 +112,19 @@ export function AdBanner({ position, t }: AdBannerProps) {
             data-ad-format="auto"
             data-full-width-responsive="true"
           />
+        ) : sponsorReady ? (
+          <a
+            href={SPONSOR_URL}
+            target="_blank"
+            rel="sponsored noopener noreferrer"
+            className="sponsor-banner-link"
+          >
+            <div className="sponsor-banner-copy">
+              <strong>{SPONSOR_TITLE}</strong>
+              {SPONSOR_DESC && <span>{SPONSOR_DESC}</span>}
+            </div>
+            {SPONSOR_CTA && <span className="sponsor-banner-cta">{SPONSOR_CTA}</span>}
+          </a>
         ) : (
           <div id={CUSTOM_CONTAINER_ID} style={{ minHeight: '90px', width: '100%' }} />
         )}

@@ -30,6 +30,7 @@ import {
   recordDownloadCompleteStat,
   recordDownloadFailStat,
   recordAutoSaveStat,
+  recordZipBundleStat,
   getUsageStatsSnapshot,
 } from './stats';
 import { streamFilesToZip, createZipPassThrough, ZipInputEntry } from './zipStream';
@@ -2187,6 +2188,7 @@ app.get('/api/batches/:batchId/zip', apiLimiter, async (req: Request, res: Respo
       });
       const parsed = new URL(signedUrl);
       if (parsed.protocol === 'https:' && parsed.hostname === 'storage.googleapis.com') {
+        recordZipBundleStat();
         res.redirect(302, parsed.toString());
         return;
       }
@@ -2216,6 +2218,7 @@ app.get('/api/batches/:batchId/zip', apiLimiter, async (req: Request, res: Respo
     return;
   }
 
+  recordZipBundleStat();
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', disposition);
   createZipPassThrough(localEntries).pipe(res);

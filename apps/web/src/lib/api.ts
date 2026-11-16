@@ -282,6 +282,7 @@ export class MockDownloadService implements DownloadService {
       totalDownloadsFailed: failed,
       totalPlaylistsQueued: 1,
       totalAutoSavedFiles: 0,
+      totalZipBundles: 0,
       totalBytesProcessed: totalBytes,
       avgDurationMs: 4200,
       platforms: { youtube: Math.max(1, this.jobs.length) },
