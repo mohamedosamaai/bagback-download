@@ -10,6 +10,7 @@
     "server:start": "cd apps/server && npm start",
     "packages:build": "npx tsc --project packages/core && npx tsc --project packages/downloader-engine",
     "build": "npm run packages:build && npm run server:build && npm run web:build",
+    "test": "npm run packages:build && npm run server:build && node --test apps/server/test/server.test.mjs",
     "lint": "echo \"No linting errors found. All systems operational!\""
   },
   "workspaces": [

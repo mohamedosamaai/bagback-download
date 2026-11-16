@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Job } from '../../types';
 import { TFunction } from '../../lib/translations';
-import { DownloadIcon, TrashIcon } from '../ui/Icons';
-import { DropboxSaver } from '../ui/DropboxSaver';
+import { DownloadIcon, TrashIcon, CheckIcon, FolderIcon } from '../ui/Icons';
 import { api } from '../../lib/api';
+import { DirectoryHandleLike, saveJobToDirectory, triggerBrowserDownload } from '../../lib/autoSave';
 
 interface JobCardProps {
   job: Job;
   onDelete: (id: string) => void;
+  isSavedToDevice?: boolean;
+  onManualSaved?: (id: string) => void;
+  folderHandle?: DirectoryHandleLike | null;
   t: TFunction;
 }
 
@@ -28,32 +31,30 @@ function truncateUrl(url: string, max = 45): string {
   }
 }
 
-export function JobCard({ job, onDelete, t }: JobCardProps) {
-  const handleDownload = () => {
-    if (api.isMockMode()) {
-      const content = `Bagback Download Mock File:\n\nTitle: ${job.title || 'Unknown Media'}\nURL: ${job.url}\nJob ID: ${job.id}\nFile Name: ${job.fileName}\nSize: ${formatSize(job.fileSize)}\nTimestamp: ${job.createdAt}\n\nThank you for using Bagback Download (by Mohamed Osama)!`;
-      const blob = new Blob([content], { type: 'text/plain' });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = job.fileName || 'download.txt';
-      a.click();
-      URL.revokeObjectURL(blobUrl);
-    } else {
-      const a = document.createElement('a');
-      a.href = `/api/jobs/${job.id}/file`;
-      a.download = job.fileName || 'download';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-  };
+export function JobCard({
+  job,
+  onDelete,
+  isSavedToDevice = false,
+  onManualSaved,
+  folderHandle = null,
+  t,
+}: JobCardProps) {
+  const [savingToFolder, setSavingToFolder] = useState(false);
 
-  const getDropboxUrl = () => {
-    if (api.isMockMode()) {
-      return 'https://raw.githubusercontent.com/mohamedosamaai/bagback-download/main/apps/web/public/apple-icon.png';
+  const handleDownload = async () => {
+    if (folderHandle) {
+      try {
+        setSavingToFolder(true);
+        await saveJobToDirectory(folderHandle, job, api.isMockMode());
+        onManualSaved?.(job.id);
+        setSavingToFolder(false);
+        return;
+      } catch {
+        setSavingToFolder(false);
+      }
     }
-    return `${window.location.origin}/api/jobs/${job.id}/file`;
+    triggerBrowserDownload(job, api.isMockMode());
+    onManualSaved?.(job.id);
   };
 
   const getStatusLabel = (status: Job['status']) => {
@@ -64,7 +65,7 @@ export function JobCard({ job, onDelete, t }: JobCardProps) {
   };
 
   return (
-    <div className="job-card">
+    <div className={`job-card ${job.status === 'completed' ? 'completed' : ''}`}>
       <div className="job-header">
         <div className={`job-status-dot ${job.status}`} />
         <div className="job-info">
@@ -75,20 +76,14 @@ export function JobCard({ job, onDelete, t }: JobCardProps) {
         </div>
         <div className="job-actions">
           {job.status === 'completed' && (
-            <>
-              <button
-                className="icon-btn download-btn"
-                onClick={handleDownload}
-                title={t('openFile')}
-              >
-                <DownloadIcon />
-              </button>
-              <DropboxSaver
-                url={getDropboxUrl()}
-                filename={job.fileName || 'download'}
-                title={t('saveToDropbox')}
-              />
-            </>
+            <button
+              className="icon-btn download-btn"
+              onClick={handleDownload}
+              disabled={savingToFolder}
+              title={folderHandle ? t('saveToChosenFolder') : t('openFile')}
+            >
+              {savingToFolder ? <span className="spinner" /> : folderHandle ? <FolderIcon /> : <DownloadIcon />}
+            </button>
           )}
           <button
             className="icon-btn delete-btn"
@@ -108,6 +103,11 @@ export function JobCard({ job, onDelete, t }: JobCardProps) {
           <span className={`status-text ${job.status}`}>
             {getStatusLabel(job.status)}
             {job.status === 'running' && ` — ${Math.round(job.progress)}%`}
+            {job.status === 'completed' && isSavedToDevice && (
+              <span className="saved-pill">
+                <CheckIcon /> {t('savedOnDevice')}
+              </span>
+            )}
           </span>
           <span className="file-size">
             {job.status === 'completed' && job.fileSize
@@ -116,11 +116,25 @@ export function JobCard({ job, onDelete, t }: JobCardProps) {
           </span>
         </div>
         {job.status === 'failed' && job.error && (
-          <div className="job-error-msg" style={{ marginTop: '6px', fontSize: '12px', color: '#f85149', lineHeight: 1.4 }}>
+          <div className="job-error-msg">
             {job.error}
           </div>
         )}
       </div>
+
+      {job.status === 'completed' && (
+        <div className="completed-action-row">
+          <button
+            type="button"
+            className="btn-save-device"
+            onClick={handleDownload}
+            disabled={savingToFolder}
+          >
+            {savingToFolder ? <span className="spinner" /> : folderHandle ? <FolderIcon /> : <DownloadIcon />}
+            <span>{folderHandle ? t('saveToChosenFolder') : t('saveToDevice')}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

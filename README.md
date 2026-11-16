@@ -34,7 +34,8 @@ All media extraction and stream multiplexing run in isolated temporary buffers w
 - **Real-Time Progress Streaming (SSE)**: Push-based progress updates (`0%` to `100%`) over Server-Sent Events without client polling overhead.
 - **Audio & Video Multiplexing**: Automated `FFmpeg` post-processing for high-bitrate MP4 video merging and lossless MP3 audio extraction.
 - **Bilingual RTL/LTR Interface**: Native Arabic (`RTL`) and English (`LTR`) support with instant language and Dark/Light theme switching.
-- **Installable PWA & Local History**: Works as an installable mobile/desktop PWA with browser-local download history (`localStorage`) and optional **Dropbox Saver** cloud export.
+- **Installable PWA & Auto-Save Folder**: Works as an installable mobile/desktop PWA with local download history, one-time File System Access API folder consent + completion notifications, and sequential 50-item playlist folder saving.
+- **Live Usage Telemetry (`/stats`) & Polite Ads**: Built-in privacy-first aggregate metrics (`/api/stats` & `/stats`), optional Google Analytics 4 (`VITE_GA_MEASUREMENT_ID`), and env-gated display banners (`VITE_AD_PROVIDER`).
 - **Browser Extension (Manifest V3)**: Official Chrome/Edge extension (`apps/extension`) for one-click media forwarding via right-click context menus.
 
 ---
@@ -91,9 +92,10 @@ bagback-download/
 ├── .github/
 │   ├── ISSUE_TEMPLATE/               # Structured YAML bug report & feature request forms
 │   ├── workflows/
-│   │   ├── ci.yml                    # Monorepo TypeScript verification & production build
+│   │   ├── ci.yml                    # Monorepo TypeScript checks, unit tests & production build
 │   │   ├── codeql.yml                # GitHub CodeQL static security analysis
-│   │   ├── security.yml              # Secret scanning & dependency audit
+│   │   ├── security.yml              # Secret scanning & production dependency audit
+│   │   ├── production-watchdog.yml   # Weekly live /api/health & PyPI yt-dlp version check
 │   │   ├── dependabot-auto-merge.yml # Automated minor/patch dependency verification
 │   │   └── publish-package.yml       # GitHub Packages publishing with SLSA provenance
 │   ├── CODEOWNERS                    # Repository ownership & review rules

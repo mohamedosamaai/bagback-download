@@ -3,10 +3,11 @@ import { TFunction } from '../../lib/translations';
 
 interface FooterProps {
   setActiveModal: (modal: 'terms' | 'privacy' | 'cleanRoom' | null) => void;
+  onOpenStats?: () => void;
   t: TFunction;
 }
 
-export function Footer({ setActiveModal, t }: FooterProps) {
+export function Footer({ setActiveModal, onOpenStats, t }: FooterProps) {
   return (
     <footer className="footer">
       <div className="footer-inner">
@@ -18,7 +19,12 @@ export function Footer({ setActiveModal, t }: FooterProps) {
         </div>
 
         <div className="footer-links">
-          <button className="footer-link-btn" onClick={() => setActiveModal('terms')}>
+          {onOpenStats && (
+            <button type="button" className="footer-link-btn" onClick={onOpenStats}>
+              {t('statsLink')}
+            </button>
+          )}
+          <button type="button" className="footer-link-btn" onClick={() => setActiveModal('terms')}>
             {t('termsBtn')}
           </button>
           <button className="footer-link-btn" onClick={() => setActiveModal('privacy')}>

@@ -18,6 +18,29 @@ export function analyzeUrl(url: string): AnalyzeResult {
       };
     }
 
+    if (parsed.username || parsed.password) {
+      return {
+        url,
+        support: 'unsupported',
+        reason: 'Embedded URL credentials are not allowed.'
+      };
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host === 'metadata.google.internal' ||
+      /^127\.|^10\.|^192\.168\.|^169\.254\./.test(host)
+    ) {
+      return {
+        url,
+        support: 'unsupported',
+        reason: 'Private or internal network targets are blocked.'
+      };
+    }
+
     return {
       url,
       support: 'needs_review',

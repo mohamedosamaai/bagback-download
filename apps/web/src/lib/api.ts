@@ -1,12 +1,15 @@
-import { AnalyzeResult, Job } from '../types';
+import { AnalyzeResult, Job, UsageStats } from '../types';
 import { getMockMetadata } from '../mocks/handlers';
 
 export interface DownloadService {
   analyze(url: string): Promise<AnalyzeResult>;
-  download(opts: { url: string; format: string; audioOnly: boolean; title?: string; items?: Array<{ url: string; title?: string }> }): Promise<{ id: string }>;
+  download(opts: { url: string; format: string; audioOnly: boolean; title?: string; items?: Array<{ url: string; title?: string }> }): Promise<{ id: string; ids?: string[]; batchId?: string; batchTitle?: string }>;
   getJobs(): Promise<Job[]>;
   deleteJob(id: string): Promise<{ deleted: boolean }>;
+  clearAllJobs(): Promise<{ cleared: boolean }>;
   streamJobs(callback: (jobs: Job[]) => void): () => void;
+  getStats(): Promise<UsageStats>;
+  reportStatEvent(event: 'autosave_file_saved' | 'playlist_folder_saved', count?: number): Promise<void>;
   isMockMode(): boolean;
 }
 
@@ -24,7 +27,7 @@ export class RealDownloadService implements DownloadService {
     return data;
   }
 
-  async download(opts: { url: string; format: string; audioOnly: boolean; title?: string; items?: Array<{ url: string; title?: string }> }): Promise<{ id: string }> {
+  async download(opts: { url: string; format: string; audioOnly: boolean; title?: string; items?: Array<{ url: string; title?: string }> }): Promise<{ id: string; ids?: string[]; batchId?: string; batchTitle?: string }> {
     const res = await fetch(`${this.API}/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -33,6 +36,24 @@ export class RealDownloadService implements DownloadService {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to start download');
     return data;
+  }
+
+  async getStats(): Promise<UsageStats> {
+    const res = await fetch(`${this.API}/stats`);
+    if (!res.ok) throw new Error('Failed to load usage statistics');
+    return res.json();
+  }
+
+  async reportStatEvent(event: 'autosave_file_saved' | 'playlist_folder_saved', count = 1): Promise<void> {
+    try {
+      await fetch(`${this.API}/stats/event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event, count }),
+      });
+    } catch {
+      // Non-critical client telemetry
+    }
   }
 
   async getJobs(): Promise<Job[]> {
@@ -47,20 +68,65 @@ export class RealDownloadService implements DownloadService {
     return res.json();
   }
 
+  async clearAllJobs(): Promise<{ cleared: boolean }> {
+    const res = await fetch(`${this.API}/jobs`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to clear jobs');
+    return res.json();
+  }
+
   streamJobs(callback: (jobs: Job[]) => void): () => void {
-    const eventSource = new EventSource(`${this.API}/jobs/stream`);
-    
-    eventSource.onmessage = (e) => {
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: number | null = null;
+    let stopped = false;
+
+    const connectSSE = () => {
+      if (stopped) return;
       try {
-        const data: Job[] = JSON.parse(e.data);
-        callback(data);
-      } catch (err) {
-        console.error('Failed to parse SSE data', err);
+        eventSource = new EventSource(`${this.API}/jobs/stream`);
+        eventSource.onmessage = (e) => {
+          try {
+            const data: Job[] = JSON.parse(e.data);
+            callback(data);
+          } catch (err) {
+            console.error('Failed to parse SSE data', err);
+          }
+        };
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (!stopped) {
+            reconnectTimer = window.setTimeout(connectSSE, 3000);
+          }
+        };
+      } catch {
+        if (!stopped) {
+          reconnectTimer = window.setTimeout(connectSSE, 3000);
+        }
       }
     };
 
+    connectSSE();
+
+    const pollInterval = window.setInterval(async () => {
+      if (stopped) return;
+      try {
+        const res = await fetch(`${this.API}/jobs`);
+        if (res.ok) {
+          const list: Job[] = await res.json();
+          callback(list);
+        }
+      } catch {
+        // Ignore transient poll errors
+      }
+    }, 2500);
+
     return () => {
-      eventSource.close();
+      stopped = true;
+      if (eventSource) eventSource.close();
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      clearInterval(pollInterval);
     };
   }
 
@@ -160,10 +226,57 @@ export class MockDownloadService implements DownloadService {
     return [...this.jobs];
   }
 
+  async getStats(): Promise<UsageStats> {
+    const completed = this.jobs.filter((j) => j.status === 'completed').length;
+    const failed = this.jobs.filter((j) => j.status === 'failed').length;
+    const totalBytes = this.jobs.reduce((acc, j) => acc + (j.fileSize || 0), 0);
+    return {
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      totalAnalyses: this.jobs.length + 12,
+      totalDownloadsStarted: this.jobs.length,
+      totalDownloadsCompleted: completed,
+      totalDownloadsFailed: failed,
+      totalPlaylistsQueued: 1,
+      totalAutoSavedFiles: 0,
+      totalBytesProcessed: totalBytes,
+      avgDurationMs: 4200,
+      platforms: { youtube: Math.max(1, this.jobs.length) },
+      daily: [
+        {
+          date: new Date().toISOString().slice(0, 10),
+          analyses: this.jobs.length + 12,
+          downloadsStarted: this.jobs.length,
+          downloadsCompleted: completed,
+          downloadsFailed: failed,
+          bytesProcessed: totalBytes,
+        },
+      ],
+      runtime: {
+        activeDownloads: this.jobs.filter((j) => j.status === 'running').length,
+        queuedDownloads: this.jobs.filter((j) => j.status === 'queued').length,
+        activeSseClients: 1,
+        uptimeSeconds: 3600,
+        ytdlpVersion: 'mock-mode',
+        gcsEnabled: false,
+      },
+    };
+  }
+
+  async reportStatEvent(_event: 'autosave_file_saved' | 'playlist_folder_saved', _count?: number): Promise<void> {
+    // No-op in mock mode
+  }
+
   async deleteJob(id: string): Promise<{ deleted: boolean }> {
     this.jobs = this.jobs.filter(j => j.id !== id);
     this.notify();
     return { deleted: true };
+  }
+
+  async clearAllJobs(): Promise<{ cleared: boolean }> {
+    this.jobs = [];
+    this.notify();
+    return { cleared: true };
   }
 
   streamJobs(callback: (jobs: Job[]) => void): () => void {

@@ -1,0 +1,77 @@
+name: "Production Health & Weekly yt-dlp Watchdog"
+
+on:
+  schedule:
+    - cron: '0 4 * * 1' # Every Monday at 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watchdog:
+    name: Check Production Health & yt-dlp Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify live /api/health & compare yt-dlp version against PyPI
+        id: probe
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let healthStatus = 0;
+            let healthJson = null;
+            try {
+              const res = await fetch('https://download.bagbacktech.com/api/health');
+              healthStatus = res.status;
+              healthJson = await res.json();
+            } catch (err) {
+              core.setFailed(`Health endpoint unreachable: ${err.message}`);
+              return;
+            }
+
+            if (healthStatus !== 200 || !healthJson || healthJson.status !== 'ok') {
+              core.setFailed(`Production health check degraded: status=${healthStatus}, body=${JSON.stringify(healthJson)}`);
+              return;
+            }
+
+            const pypiRes = await fetch('https://pypi.org/pypi/yt-dlp/json');
+            const pypiJson = await pypiRes.json();
+            const latest = pypiJson?.info?.version || 'unknown';
+            const live = healthJson.ytdlp || 'unknown';
+
+            core.info(`Live yt-dlp: ${live}, Latest PyPI yt-dlp: ${latest}`);
+            core.setOutput('live_ytdlp', live);
+            core.setOutput('latest_ytdlp', latest);
+            core.setOutput('needs_update', String(latest !== 'unknown' && live !== latest));
+
+      - name: Create tracking issue when yt-dlp update is available
+        if: steps.probe.outputs.needs_update == 'true'
+        uses: actions/github-script@v7
+        env:
+          LIVE_VER: ${{ steps.probe.outputs.live_ytdlp }}
+          LATEST_VER: ${{ steps.probe.outputs.latest_ytdlp }}
+        with:
+          script: |
+            const { LIVE_VER, LATEST_VER } = process.env;
+            const title = `chore(deps): update production yt-dlp (${LIVE_VER} -> ${LATEST_VER})`;
+            const existing = await github.rest.issues.listForRepo({
+              ...context.repo,
+              state: 'open',
+              per_page: 30,
+            });
+            if (existing.data.some((i) => i.title.includes(LATEST_VER))) {
+              return;
+            }
+            await github.rest.issues.create({
+              ...context.repo,
+              title,
+              body: [
+                `Automated weekly watchdog detected a newer \`yt-dlp\` release on PyPI.`,
+                ``,
+                `- **Live Production Version:** \`${LIVE_VER}\``,
+                `- **Latest PyPI Version:** \`${LATEST_VER}\``,
+                ``,
+                `Redeploying the Cloud Run container rebuilds Stage 3 with \`yt-dlp[default,curl-cffi]==${LATEST_VER}\`. Use \`--no-traffic --tag=staging\` first, verify \`/api/health\`, and keep \`stable\` tagged for instant rollback.`,
+              ].join('\n'),
+            });

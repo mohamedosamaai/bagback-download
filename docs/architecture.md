@@ -21,14 +21,15 @@ URL validation and engine adapter utilities shared across workspace packages.
 
 ## Request & Data Flow
 
-1. **URL Analysis (`POST /api/analyze`)**: The client submits a media URL. The server validates the URL and extracts available video/audio formats and metadata.
-2. **Job Queueing (`POST /api/download`)**: The client selects the target quality or audio-only mode. The server creates a unique job ID, persists job state (`jobs/{id}.json` when `GCS_BUCKET` is set), and starts an asynchronous extraction process.
-3. **Real-Time Telemetry (`GET /api/jobs/stream`)**: The server pushes live progress percentages (`0%` to `100%`) over Server-Sent Events (SSE) with 15s heartbeats and clean 45s reconnect cycles ahead of reverse-proxy timeouts, hydrating state from shared storage across instances.
-4. **File Delivery & Cleanup (`GET /api/jobs/:id/file`)**: When `GCS_BUCKET` is configured, completed media is uploaded to `media/{id}/` and served via a short-lived V4 Signed URL `302` redirect (unbounded file size + HTTP Range resume, `Cache-Control: no-store`). In standalone/Docker mode without `GCS_BUCKET`, files stream from disk with full `HTTP 206 Partial Content` and `HEAD` support. Artifacts are purged automatically after 2 hours (and via 1-day bucket lifecycle) or manual deletion (`DELETE /api/jobs/:id`).
+1. **URL Analysis (`POST /api/analyze`)**: The client submits a media URL. The server enforces strict SSRF protection (blocking private, loopback, metadata, and internal IPs/hostnames via DNS resolution) and extracts available formats and metadata (up to 50 playlist items).
+2. **Job Queueing (`POST /api/download`)**: The client selects video quality or audio-only mode (or a playlist batch). The server assigns UUID identifiers + shared `batchId`/`batchTitle`, persists job state (`jobs/{id}.json` when `GCS_BUCKET` is set), and queues extraction.
+3. **Real-Time Telemetry & Auto-Save (`GET /api/jobs/stream`, `/api/stats`, `/stats`)**: The server pushes progress over SSE (15s heartbeats, clean 45s reconnect ahead of proxy timeouts), tracks zero-PII aggregate metrics (`/api/stats`), and enables client-side File System Access API folder auto-save + sequential playlist saving.
+4. **File Delivery & Cleanup (`GET /api/jobs/:id/file`)**: When `GCS_BUCKET` is configured, completed media is uploaded to `media/{id}/` and served via a short-lived V4 Signed URL `302` redirect (unbounded file size + HTTP Range resume + CORS for direct folder writes, `Cache-Control: no-store`). In standalone/Docker mode without `GCS_BUCKET`, files stream from disk with full `HTTP 206 Partial Content` and `HEAD` support. Artifacts are purged automatically after 2 hours (and via 1-day bucket lifecycle) or manual deletion (`DELETE /api/jobs/:id`).
 
 ## Cloud & Deployment Topology
 
-- **Frontend Edge CDN**: Firebase Hosting (`apps/web/dist`) with Workbox PWA routing (`navigateFallbackDenylist` excluding `/api/`) and `/api/**` rewrites to Cloud Run.
+- **Frontend Edge CDN**: Firebase Hosting (`apps/web/dist`) with security headers (`HSTS`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`), Workbox PWA routing (`navigateFallbackDenylist` excluding `/api/`), and `/api/**` rewrites to Cloud Run.
 - **Backend Compute**: Google Cloud Run (`us-central1`) containerized service (`Dockerfile`) running Node.js 20, Python 3.12, `yt-dlp`, Deno, and `FFmpeg`.
-- **Large-File Transfer & Shared State**: Optional Google Cloud Storage bucket (`GCS_BUCKET`) for cross-instance job state and direct browser downloads via V4 Signed URLs.
+- **Large-File Transfer & Shared State**: Google Cloud Storage (`GCS_BUCKET=bagback-download-media-prod`) for cross-instance job state, telemetry summary, and CORS-enabled Signed URL downloads.
+- **Reliability & Monitoring**: Cloud Monitoring Uptime Check + email alert policies on `/api/health` (`yt-dlp`, disk, GCS readiness) plus weekly automated `yt-dlp` freshness checks and Cloud Run `stable` revision tagging.
 - **Self-Hosted Option**: Single-command deployment via `docker compose up -d --build`.

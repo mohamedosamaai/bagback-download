@@ -10,6 +10,28 @@ import tls from 'tls';
 import rateLimit from 'express-rate-limit';
 import { Storage, Bucket } from '@google-cloud/storage';
 import type { Job, FormatInfo, PlaylistItem } from '@bagback-download/core';
+import {
+  isValidJobId,
+  getMediaContentType,
+  buildContentDisposition,
+  resolveSafeLocalFile,
+  sanitizeJobForClient,
+  parseByteRange,
+  assertPublicTarget,
+  validatePublicMediaUrl,
+  detectPlatform,
+} from './security';
+import {
+  initStats,
+  refreshStatsFromGcs,
+  setCachedYtdlpVersion,
+  recordAnalyzeStat,
+  recordDownloadStartStat,
+  recordDownloadCompleteStat,
+  recordDownloadFailStat,
+  recordAutoSaveStat,
+  getUsageStatsSnapshot,
+} from './stats';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -17,7 +39,6 @@ const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.resolve(__dirname, '..', '
 const STATIC_DIR = process.env.STATIC_DIR || path.join(__dirname, '..', 'static');
 const GCS_BUCKET_NAME = (process.env.GCS_BUCKET || '').trim();
 const JOB_MAX_AGE_MS = 2 * 60 * 60 * 1000;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 if (!fs.existsSync(DOWNLOAD_DIR)) {
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
@@ -27,53 +48,6 @@ const gcsBucket: Bucket | null = GCS_BUCKET_NAME ? new Storage().bucket(GCS_BUCK
 const jobs = new Map<string, Job>();
 const lastGcsSyncAt = new Map<string, number>();
 let gcsListCache: { jobs: Job[]; fetchedAt: number } = { jobs: [], fetchedAt: 0 };
-
-/** Validates that a job ID is strictly a UUID v4-formatted identifier. */
-function isValidJobId(id: string | undefined): id is string {
-  return typeof id === 'string' && UUID_RE.test(id);
-}
-
-/** Resolves the MIME type from a media filename or path extension. */
-function getMediaContentType(fileNameOrPath: string): string {
-  const ext = path.extname(fileNameOrPath).slice(1).toLowerCase();
-  const mimeMap: Record<string, string> = {
-    mp4: 'video/mp4',
-    mp3: 'audio/mpeg',
-    webm: 'video/webm',
-    mkv: 'video/x-matroska',
-    m4a: 'audio/mp4',
-    mov: 'video/quicktime',
-    aac: 'audio/aac',
-    ogg: 'audio/ogg',
-    opus: 'audio/opus',
-    wav: 'audio/wav',
-  };
-  return mimeMap[ext] || 'application/octet-stream';
-}
-
-/** Builds an RFC 5987 attachment Content-Disposition header safe against header injection. */
-function buildContentDisposition(rawFileName: string): string {
-  const sanitized = (rawFileName || 'download').replace(/[\r\n\x00-\x1F"/\\]+/g, '_').trim() || 'download';
-  const ext = path.extname(sanitized).replace(/[^a-zA-Z0-9.]/g, '');
-  const asciiFallback = sanitized.replace(/[^\x20-\x7E]/g, '').replace(/[";]+/g, '_').trim() || `bagback-download${ext}`;
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(sanitized)}`;
-}
-
-/** Verifies and resolves a local downloaded file path strictly inside DOWNLOAD_DIR for a validated job ID. */
-function resolveSafeLocalFile(id: string, filePath?: string): string | null {
-  if (!isValidJobId(id) || !filePath) return null;
-  const resolvedRoot = path.resolve(DOWNLOAD_DIR);
-  const resolvedTarget = path.resolve(filePath);
-  if (!resolvedTarget.startsWith(resolvedRoot + path.sep)) return null;
-  if (!path.basename(resolvedTarget).startsWith(`${id}-`)) return null;
-  return fs.existsSync(resolvedTarget) ? resolvedTarget : null;
-}
-
-/** Serializes a job without exposing internal server filesystem paths. */
-function sanitizeJobForClient(job: Job): Job {
-  const { filePath: _omit, ...safeJob } = job;
-  return safeJob;
-}
 
 /** Persists job metadata to GCS when GCS_BUCKET is configured, throttling intermediate progress writes. */
 async function syncJobToGcs(job: Job, immediate = false): Promise<void> {
@@ -183,7 +157,7 @@ async function getMergedJobsList(): Promise<Job[]> {
 /** Deletes both local temporary files and GCS objects for a job ID. */
 async function deleteJobArtifacts(id: string, job?: Job): Promise<void> {
   if (!isValidJobId(id)) return;
-  const localSafe = resolveSafeLocalFile(id, job?.filePath);
+  const localSafe = resolveSafeLocalFile(id, DOWNLOAD_DIR, job?.filePath);
   if (localSafe) {
     try { fs.unlinkSync(localSafe); } catch {}
   }
@@ -224,7 +198,14 @@ app.use(cors({
   },
   methods: ['GET', 'HEAD', 'POST', 'DELETE'],
 }));
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
+app.use((_req: Request, res: Response, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 app.use('/api', (_req: Request, res: Response, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
@@ -695,7 +676,7 @@ function isPurePlaylistUrl(url: string): boolean {
 }
 
 /**
- * Extracts playlist metadata and items (up to 25 items) using yt-dlp flat-playlist mode.
+ * Extracts playlist metadata and items (up to 50 items) using yt-dlp flat-playlist mode.
  */
 async function extractPlaylistData(url: string): Promise<{
   title: string;
@@ -710,7 +691,7 @@ async function extractPlaylistData(url: string): Promise<{
       '--flat-playlist',
       '--dump-single-json',
       '--yes-playlist',
-      '--playlist-end', '25',
+      '--playlist-end', '50',
       '--no-warnings',
     ];
     const proxy = getCustomProxy();
@@ -800,13 +781,75 @@ app.set('trust proxy', 2);
 
 // ─── Routes ───────────────────────────────────────────────────────────────
 
+let healthYtdlpCache: { version: string; checkedAt: number } = { version: 'active', checkedAt: 0 };
+
 app.get('/api/health', async (_req: Request, res: Response) => {
+  let diskOk = false;
   try {
-    const version = await ytdlp(['--version']);
-    res.json({ status: 'ok', ytdlp: version });
+    fs.accessSync(DOWNLOAD_DIR, fs.constants.W_OK);
+    diskOk = true;
   } catch {
-    res.json({ status: 'ok', ytdlp: 'active' });
+    diskOk = false;
   }
+
+  let version = healthYtdlpCache.version;
+  if (Date.now() - healthYtdlpCache.checkedAt > 60000 || version === 'active') {
+    try {
+      version = await ytdlp(['--version']);
+      healthYtdlpCache = { version, checkedAt: Date.now() };
+      setCachedYtdlpVersion(version);
+    } catch {
+      version = 'unavailable';
+    }
+  }
+
+  let gcsStatus: 'ok' | 'degraded' | 'disabled' = 'disabled';
+  if (gcsBucket) {
+    try {
+      const [exists] = await Promise.race([
+        gcsBucket.exists(),
+        new Promise<[boolean]>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500)),
+      ]);
+      gcsStatus = exists ? 'ok' : 'degraded';
+    } catch {
+      gcsStatus = 'degraded';
+    }
+  }
+
+  const healthy = diskOk && version !== 'unavailable';
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'ok' : 'degraded',
+    ytdlp: version,
+    disk: diskOk ? 'ok' : 'error',
+    gcs: gcsStatus,
+    uptimeSeconds: Math.floor(process.uptime()),
+  });
+});
+
+app.get('/api/stats', apiLimiter, async (_req: Request, res: Response) => {
+  await refreshStatsFromGcs();
+  res.json(
+    getUsageStatsSnapshot({
+      activeDownloads: activeDownloadsCount,
+      queuedDownloads: pendingQueue.length,
+      activeSseClients: sseClients.length,
+      gcsEnabled: Boolean(gcsBucket),
+    })
+  );
+});
+
+app.post('/api/stats/event', apiLimiter, (req: Request, res: Response) => {
+  const { event, count } = (req.body || {}) as { event?: string; count?: number };
+  if (event !== 'autosave_file_saved' && event !== 'playlist_folder_saved') {
+    res.status(400).json({ error: 'Unsupported telemetry event' });
+    return;
+  }
+  const safeCount =
+    typeof count === 'number' && Number.isFinite(count)
+      ? Math.max(1, Math.min(50, Math.floor(count)))
+      : 1;
+  recordAutoSaveStat(safeCount);
+  res.json({ recorded: true });
 });
 
 app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
@@ -816,10 +859,14 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
     return;
   }
 
-  url = url.trim();
-  if (!/^https?:\/\//i.test(url)) {
-    url = 'https://' + url;
+  try {
+    url = await assertPublicTarget(url);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Blocked or invalid URL' });
+    return;
   }
+
+  recordAnalyzeStat(detectPlatform(url));
 
   const defaultPresetFormats: FormatInfo[] = [
     { id: 'bestvideo+bestaudio/best', ext: 'mp4', resolution: '1080p (Best)', vcodec: 'h264' },
@@ -1059,43 +1106,64 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
   };
 
   if (Array.isArray(items) && items.length > 0) {
-    const validItems = items
+    const candidateItems = items
       .filter((item) => item && typeof item.url === 'string' && item.url.trim().length > 0)
-      .slice(0, 25);
+      .slice(0, 50);
+
+    const validatedHosts = new Map<string, boolean>();
+    const validItems: Array<{ url: string; title?: string }> = [];
+    for (const item of candidateItems) {
+      const check = validatePublicMediaUrl(item.url);
+      if (!check.valid || !check.normalizedUrl || !check.hostname) continue;
+      let hostAllowed = validatedHosts.get(check.hostname);
+      if (hostAllowed === undefined) {
+        try {
+          await assertPublicTarget(check.normalizedUrl);
+          hostAllowed = true;
+        } catch {
+          hostAllowed = false;
+        }
+        validatedHosts.set(check.hostname, hostAllowed);
+      }
+      if (hostAllowed) {
+        validItems.push({ url: check.normalizedUrl, title: item.title });
+      }
+    }
 
     if (validItems.length === 0) {
-      res.status(400).json({ error: 'No valid playlist items provided' });
+      res.status(400).json({ error: 'No valid public playlist items provided' });
       return;
     }
 
+    const batchId = uuidv4();
+    const cleanBatchTitle = (title || 'Playlist').trim().slice(0, 100);
     const ids: string[] = [];
     const now = Date.now();
     validItems.forEach((item, idx) => {
-      let itemUrl = item.url.trim();
-      if (!/^https?:\/\//i.test(itemUrl)) {
-        itemUrl = 'https://' + itemUrl;
-      }
       const id = uuidv4();
       const timestamp = new Date(now + idx).toISOString();
       const job: Job = {
         id,
-        url: itemUrl,
+        url: item.url,
         title: item.title,
         status: 'queued',
         progress: 0,
         format,
+        batchId,
+        batchTitle: cleanBatchTitle,
         createdAt: timestamp,
         updatedAt: timestamp,
       };
       jobs.set(id, job);
       void syncJobToGcs(job, true);
       ids.push(id);
-      pendingQueue.push({ id, url: itemUrl, format, audioOnly });
+      pendingQueue.push({ id, url: item.url, format, audioOnly });
     });
 
+    recordDownloadStartStat(ids.length, true);
     broadcastJobs();
     processDownloadQueue();
-    res.json({ id: ids[0], ids, count: ids.length });
+    res.json({ id: ids[0], ids, batchId, batchTitle: cleanBatchTitle, count: ids.length });
     return;
   }
 
@@ -1104,38 +1172,53 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
     return;
   }
 
-  url = url.trim();
-  if (!/^https?:\/\//i.test(url)) {
-    url = 'https://' + url;
+  try {
+    url = await assertPublicTarget(url);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Blocked or invalid URL' });
+    return;
   }
 
   if (playlist && isPlaylistUrl(url)) {
     const extracted = await extractPlaylistData(url);
     if (extracted && extracted.items.length > 0) {
-      const ids: string[] = [];
-      const now = Date.now();
-      extracted.items.forEach((item, idx) => {
-        const id = uuidv4();
-        const timestamp = new Date(now + idx).toISOString();
-        const job: Job = {
-          id,
-          url: item.url,
-          title: item.title,
-          status: 'queued',
-          progress: 0,
-          format,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-        jobs.set(id, job);
-        void syncJobToGcs(job, true);
-        ids.push(id);
-        pendingQueue.push({ id, url: item.url, format, audioOnly });
-      });
-      broadcastJobs();
-      processDownloadQueue();
-      res.json({ id: ids[0], ids, count: ids.length });
-      return;
+      const safeExtracted = extracted.items
+        .map((item) => ({ item, check: validatePublicMediaUrl(item.url) }))
+        .filter((x) => x.check.valid && x.check.normalizedUrl)
+        .slice(0, 50);
+
+      if (safeExtracted.length > 0) {
+        const batchId = uuidv4();
+        const cleanBatchTitle = (extracted.title || title || 'Playlist').trim().slice(0, 100);
+        const ids: string[] = [];
+        const now = Date.now();
+        safeExtracted.forEach(({ item, check }, idx) => {
+          const itemUrl = check.normalizedUrl as string;
+          const id = uuidv4();
+          const timestamp = new Date(now + idx).toISOString();
+          const job: Job = {
+            id,
+            url: itemUrl,
+            title: item.title,
+            status: 'queued',
+            progress: 0,
+            format,
+            batchId,
+            batchTitle: cleanBatchTitle,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          };
+          jobs.set(id, job);
+          void syncJobToGcs(job, true);
+          ids.push(id);
+          pendingQueue.push({ id, url: itemUrl, format, audioOnly });
+        });
+        recordDownloadStartStat(ids.length, true);
+        broadcastJobs();
+        processDownloadQueue();
+        res.json({ id: ids[0], ids, batchId, batchTitle: cleanBatchTitle, count: ids.length });
+        return;
+      }
     }
   }
 
@@ -1154,6 +1237,7 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
   jobs.set(id, job);
   void syncJobToGcs(job, true);
   pendingQueue.push({ id, url, format, audioOnly });
+  recordDownloadStartStat(1, false);
   broadcastJobs();
   processDownloadQueue();
 
@@ -1404,12 +1488,14 @@ async function downloadYouTubeDirectAndroid(
 }
 
 async function runDownload(id: string, url: string, format: string, audioOnly: boolean) {
+  const startedAtMs = Date.now();
   updateJob(id, { status: 'running', progress: 0 });
 
   // Auto-fail if stuck at 0% for more than 4 minutes
   const jobTimeout = setTimeout(() => {
     const currentJob = jobs.get(id);
     if (currentJob && currentJob.status === 'running' && currentJob.progress === 0) {
+      recordDownloadFailStat();
       updateJob(id, {
         status: 'failed',
         error: 'انتهت مهلة التحميل — قد يكون الرابط محظوراً أو المزود غير متاح'
@@ -1684,12 +1770,14 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
           };
           jobs.set(id, completedJob);
           await syncJobToGcs(completedJob, true);
+          recordDownloadCompleteStat(Date.now() - startedAtMs, stat.size);
           broadcastJobs();
         }
         return;
       }
     }
 
+    recordDownloadCompleteStat(Date.now() - startedAtMs, stat.size);
     updateJob(id, {
       status: 'completed',
       progress: 100,
@@ -1700,8 +1788,10 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
       fileSize: stat.size,
     }, true);
   } else if (success) {
+    recordDownloadCompleteStat(Date.now() - startedAtMs, 0);
     updateJob(id, { status: 'completed', progress: 100 }, true);
   } else {
+    recordDownloadFailStat();
     updateJob(id, {
       status: 'failed',
       error: sanitizeErrorMessage(lastError, url),
@@ -1768,7 +1858,11 @@ app.get('/api/jobs/:id', apiLimiter, async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Invalid job ID' });
     return;
   }
-  const job = jobs.get(id) || (await loadJobFromGcs(id));
+  let job = jobs.get(id);
+  if (!job || (job.status !== 'completed' && job.status !== 'failed' && gcsBucket)) {
+    const remote = await loadJobFromGcs(id);
+    if (remote) job = remote;
+  }
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
     return;
@@ -1827,7 +1921,7 @@ app.get('/api/jobs/:id/file', apiLimiter, async (req: Request, res: Response) =>
   }
 
   // 2. Local / Docker disk fallback with full HTTP 206 Range + HEAD support
-  const safeLocalPath = resolveSafeLocalFile(id, job.filePath);
+  const safeLocalPath = resolveSafeLocalFile(id, DOWNLOAD_DIR, job.filePath);
   if (!safeLocalPath) {
     res.status(404).json({ error: 'File not found on storage' });
     return;
@@ -1847,19 +1941,13 @@ app.get('/api/jobs/:id/file', apiLimiter, async (req: Request, res: Response) =>
 
   const rangeHeader = req.headers.range;
   if (rangeHeader) {
-    const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
-    if (!match) {
+    const parsedRange = parseByteRange(rangeHeader, totalSize);
+    if (!parsedRange.ok) {
       res.setHeader('Content-Range', `bytes */${totalSize}`);
       res.status(416).end();
       return;
     }
-    const start = match[1] ? parseInt(match[1], 10) : Math.max(0, totalSize - parseInt(match[2], 10));
-    const end = match[1] && match[2] ? Math.min(parseInt(match[2], 10), totalSize - 1) : totalSize - 1;
-    if (isNaN(start) || isNaN(end) || start > end || start >= totalSize) {
-      res.setHeader('Content-Range', `bytes */${totalSize}`);
-      res.status(416).end();
-      return;
-    }
+    const { start, end } = parsedRange;
     res.status(206);
     res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
     res.setHeader('Content-Length', end - start + 1);
@@ -1944,4 +2032,11 @@ app.listen(PORT, () => {
   console.log(`[Bagback Download Server] download dir: ${DOWNLOAD_DIR}`);
   console.log(`[Bagback Download Server] static dir: ${STATIC_DIR}`);
   console.log(`[Bagback Download Server] GCS bucket: ${GCS_BUCKET_NAME || 'disabled (local mode)'}`);
+  void initStats(gcsBucket);
+  void ytdlp(['--version'])
+    .then((ver) => {
+      healthYtdlpCache = { version: ver, checkedAt: Date.now() };
+      setCachedYtdlpVersion(ver);
+    })
+    .catch(() => {});
 });
