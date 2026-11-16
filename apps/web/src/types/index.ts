@@ -50,6 +50,7 @@ export interface UsageStats {
   totalDownloadsFailed: number;
   totalPlaylistsQueued: number;
   totalAutoSavedFiles: number;
+  totalZipBundles: number;
   totalBytesProcessed: number;
   avgDurationMs: number;
   platforms: Record<string, number>;

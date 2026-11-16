@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const security = require('../dist/security.js');
+const statsMod = require('../dist/stats.js');
 const { streamFilesToZip } = require('../dist/zipStream.js');
 const { PassThrough } = require('node:stream');
 const { Readable } = require('node:stream');
@@ -115,4 +116,25 @@ test('streamFilesToZip produces a valid multi-entry ZIP with UTF-8 Arabic names 
   assert.ok(zipBuf.includes(Buffer.from('أغنية عربية.mp3', 'utf8')));
   assert.ok(zipBuf.includes(Buffer.from('أغنية عربية (2).mp3', 'utf8')));
   assert.equal(zipBuf.readUInt32LE(zipBuf.length - 22), 0x06054b50); // EOCD signature PK\x05\x06
+});
+
+test('recordZipBundleStat increments totalZipBundles in usage stats snapshot', () => {
+  const before = statsMod.getUsageStatsSnapshot({
+    activeDownloads: 0,
+    queuedDownloads: 0,
+    activeSseClients: 0,
+    gcsEnabled: false,
+  });
+  statsMod.recordZipBundleStat();
+  const after = statsMod.getUsageStatsSnapshot({
+    activeDownloads: 1,
+    queuedDownloads: 2,
+    activeSseClients: 3,
+    gcsEnabled: true,
+  });
+  assert.equal(after.totalZipBundles, before.totalZipBundles + 1);
+  assert.equal(after.runtime.activeDownloads, 1);
+  assert.equal(after.runtime.queuedDownloads, 2);
+  assert.equal(after.runtime.activeSseClients, 3);
+  assert.equal(after.runtime.gcsEnabled, true);
 });

@@ -5,7 +5,7 @@ Bagback Download is structured as a modular TypeScript monorepo deployed across 
 ## Monorepo Workspaces
 
 ### `apps/web`
-Progressive Web Application (PWA) built with React, Vite, and TypeScript. Supports full Arabic (RTL) and English (LTR) localization, real-time Server-Sent Events (SSE) progress updates, local download history, and optional Dropbox integration. Deployed globally via **Firebase Hosting**.
+Progressive Web Application (PWA) built with React, Vite, and TypeScript, plus post-build static pre-rendering (`scripts/prerender-seo.mjs`) generating clean HTML landing pages and `sitemap.xml`. Supports full Arabic (RTL) and English (LTR) localization, Audio/Video/Playlist/Archive filtering, `/stats` global + personal showcase dashboard, real-time SSE progress updates, and local download history. Deployed globally via **Firebase Hosting**.
 
 ### `apps/server`
 Node.js and Express API server managing media metadata analysis, download job orchestration, SSE progress broadcasting, rate limiting, and automatic temporary file cleanup. Powered by `yt-dlp` and `FFmpeg` inside an isolated runtime container deployed on **Google Cloud Run** (or self-hosted via Docker).

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Lang } from '../../types';
 import { TFunction } from '../../lib/translations';
-import { GlobeIcon, ChartIcon, PhoneInstallIcon, ExternalLinkIcon } from '../ui/Icons';
+import { GlobeIcon, ChartIcon, PhoneInstallIcon } from '../ui/Icons';
 
 interface HeaderProps {
   lang: Lang;
@@ -65,11 +65,11 @@ export function Header({
           {onNavigateStats && (
             <button
               type="button"
-              className="nav-btn"
+              className="nav-btn nav-stats-btn"
               onClick={onNavigateStats}
               title={t('statsLink')}
             >
-              <ChartIcon />
+              <ChartIcon /> <span>{t('statsNavShort')}</span>
             </button>
           )}
           <button
@@ -79,14 +79,6 @@ export function Header({
           >
             <GlobeIcon /> {t('langSwitch')}
           </button>
-          <a
-            href="https://mohamedosama.me"
-            target="_blank"
-            rel="noreferrer"
-            className="nav-btn nav-website-btn"
-          >
-            <span>{t('myWebsite')}</span> <ExternalLinkIcon />
-          </a>
           <a href="https://bagbacktech.com" target="_blank" rel="noreferrer" className="nav-link nav-btn">
             {t('bagbackTech')}
           </a>

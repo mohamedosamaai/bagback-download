@@ -33,10 +33,10 @@ All media extraction and stream multiplexing run in isolated temporary buffers w
 - **Universal Format Extraction**: Inspect and download video and audio streams across 1,000+ supported platforms with adaptive quality selection (`1080p`, `720p`, `480p`, `360p`, or `MP3` audio).
 - **Real-Time Progress Streaming (SSE)**: Push-based progress updates (`0%` to `100%`) over Server-Sent Events without client polling overhead.
 - **Audio & Video Multiplexing**: Automated `FFmpeg` post-processing for high-bitrate MP4 video merging and lossless MP3 audio extraction.
-- **Bilingual RTL/LTR Interface**: Native Arabic (`RTL`) and English (`LTR`) support with instant language and Dark/Light theme switching.
-- **Installable PWA & Auto-Save Folder**: Works as an installable mobile/desktop PWA with local download history, one-time File System Access API folder consent + completion notifications, and sequential 50-item playlist folder saving.
-- **Live Usage Telemetry (`/stats`) & Polite Ads**: Built-in privacy-first aggregate metrics (`/api/stats` & `/stats`), optional Google Analytics 4 (`VITE_GA_MEASUREMENT_ID`), and env-gated display banners (`VITE_AD_PROVIDER`).
-- **Browser Extension (Manifest V3)**: Official Chrome/Edge extension (`apps/extension`) for one-click media forwarding via right-click context menus.
+- **Bilingual RTL/LTR Interface & SEO Landing Pages**: Native Arabic (`RTL`) and English (`LTR`) UI with pre-rendered static SEO landing pages (`/youtube-downloader`, `/mp3-converter`, `/playlist-downloader`, `/download-video`, `/tiktok-downloader`, `/instagram-downloader`) and dynamic `sitemap.xml` generation.
+- **Installable PWA & Auto-Save Folder**: Works as an installable mobile/desktop PWA with local download history, one-time File System Access API folder consent + completion notifications, audio/video/archive tabs, and single-click playlist `.zip` download.
+- **Global & Personal Stats (`/stats`) & Monetization Slots**: Live showcase dashboard displaying both global platform telemetry (`/api/stats`) and personal device savings, optional GA4 (`VITE_GA_MEASUREMENT_ID`), and env-gated display/partner slots (`VITE_AD_PROVIDER`).
+- **Browser Extension (Manifest V3)**: Official Chrome/Edge extension v1.1.0 (`apps/extension`) for one-click media forwarding via context menus or toolbar popup.
 
 ---
 

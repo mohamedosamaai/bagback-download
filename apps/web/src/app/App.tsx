@@ -78,6 +78,24 @@ const SEO_ROUTES: Record<string, SeoRouteMeta> = {
     descAr: 'موقع تحميل ودونلود الفيديوهات والملفات الصوتية من جميع المواقع بسرعة وأمان على الهاتف والكمبيوتر.',
     descEn: 'Universal free video and audio downloader for phone and desktop.',
   },
+  '/tiktok-downloader': {
+    titleAr: 'تحميل فيديو تيك توك بدون علامة مائية مجاناً — Bagback Download | دونلود تيك توك',
+    titleEn: 'Free TikTok Video Downloader HD (MP4) — Bagback Download',
+    descAr: 'تحميل ودونلود فيديوهات تيك توك بأعلى جودة MP4 وبسرعة فائقة مباشرة على الهاتف والكمبيوتر مجاناً.',
+    descEn: 'Fast free TikTok video downloader in HD MP4 directly to your phone or computer.',
+  },
+  '/instagram-downloader': {
+    titleAr: 'تنزيل ريلز وفيديو انستقرام مجاناً — Bagback Download | دونلود انستقرام',
+    titleEn: 'Free Instagram Reels & Video Downloader — Bagback Download',
+    descAr: 'تحميل ودونلود ريلز ومقاطع انستقرام وصوت MP3 بجودة أصلية وحفظ مباشر على جهازك مجاناً.',
+    descEn: 'Download Instagram Reels, videos, and crisp MP3 audio directly to your device for free.',
+  },
+  '/stats': {
+    titleAr: 'لوحة إحصائيات الاستخدام والأداء المباشر — Bagback Download',
+    titleEn: 'Live Platform & Personal Usage Statistics — Bagback Download',
+    descAr: 'متابعة حية لأداء منصة Bagback Download وإحصائيات التحميل العالمية ونشاطك الشخصي بدون أي تتبع للروابط.',
+    descEn: 'Real-time global platform performance metrics and personal device savings on Bagback Download.',
+  },
 };
 
 function isAudioJob(job: Job): boolean {
@@ -252,7 +270,7 @@ export function App() {
 
     const canonicalEl = document.querySelector('link[rel="canonical"]');
     if (canonicalEl) {
-      const canonicalPath = route === '/stats' ? '/' : route;
+      const canonicalPath = route in SEO_ROUTES ? route : '/';
       canonicalEl.setAttribute('href', `https://download.bagbacktech.com${canonicalPath === '/' ? '/' : canonicalPath}`);
     }
   }, [lang, route]);
@@ -262,9 +280,7 @@ export function App() {
     if (robotsMeta) {
       robotsMeta.setAttribute(
         'content',
-        route === '/stats'
-          ? 'noindex, nofollow'
-          : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'
+        'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'
       );
     }
   }, [route]);
@@ -693,7 +709,15 @@ export function App() {
       <main className="main">
         <div className="container">
           {route === '/stats' ? (
-            <StatsDashboard onBack={() => navigateTo('/')} t={t} />
+            <StatsDashboard
+              onBack={() => navigateTo('/')}
+              t={t}
+              savedArchive={savedArchive}
+              localHistory={localHistory}
+              jobs={jobs}
+              autoSaveEnabled={autoSaveEnabled}
+              folderName={folderName}
+            />
           ) : (
             <>
               {!isStandalone && !installBannerDismissed && (
@@ -1146,6 +1170,32 @@ export function App() {
                     </details>
                   </div>
                 </div>
+
+                <nav className="seo-hub-nav" aria-label={t('seoHubTitle')}>
+                  <h2 className="seo-hub-title">{t('seoHubTitle')}</h2>
+                  <div className="seo-hub-links">
+                    {[
+                      { path: '/youtube-downloader', label: t('seoLinkYoutube') },
+                      { path: '/mp3-converter', label: t('seoLinkMp3') },
+                      { path: '/playlist-downloader', label: t('seoLinkPlaylist') },
+                      { path: '/download-video', label: t('seoLinkVideo') },
+                      { path: '/tiktok-downloader', label: t('seoLinkTiktok') },
+                      { path: '/instagram-downloader', label: t('seoLinkInstagram') },
+                    ].map((item) => (
+                      <a
+                        key={item.path}
+                        href={item.path}
+                        className={`seo-hub-link ${route === item.path ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigateTo(item.path);
+                        }}
+                      >
+                        {item.label}
+                      </a>
+                    ))}
+                  </div>
+                </nav>
               </section>
             </>
           )}
