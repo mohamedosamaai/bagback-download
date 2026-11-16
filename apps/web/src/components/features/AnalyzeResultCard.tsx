@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AnalyzeResult, Format } from '../../types';
 import { TFunction } from '../../lib/translations';
-import { DownloadIcon, PlaylistIcon } from '../ui/Icons';
+import { DownloadIcon, PlaylistIcon, VideoIcon, MusicIcon } from '../ui/Icons';
 
 interface AnalyzeResultCardProps {
   result: AnalyzeResult;
@@ -140,20 +140,20 @@ export function AnalyzeResultCard({
         </div>
       )}
 
-      <div className="options-row" style={{ marginBottom: '16px', justifyContent: 'flex-start' }}>
+      <div className="options-row tabs-row" style={{ marginBottom: '16px', justifyContent: 'flex-start' }}>
         <button
           type="button"
           className={`option-chip ${!audioOnly ? 'selected' : ''}`}
           onClick={() => setAudioOnly(false)}
         >
-          {t('videoTab')}
+          <VideoIcon /> {t('videoTab')}
         </button>
         <button
           type="button"
           className={`option-chip ${audioOnly ? 'selected' : ''}`}
           onClick={() => setAudioOnly(true)}
         >
-          {t('audioTab')}
+          <MusicIcon /> {t('audioTab')}
         </button>
       </div>
 

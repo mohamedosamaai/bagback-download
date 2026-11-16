@@ -1,5 +1,6 @@
 import React from 'react';
 import { TFunction } from '../../lib/translations';
+import { CloseIcon } from './Icons';
 
 interface InfoModalProps {
   title: string;
@@ -14,7 +15,9 @@ export function InfoModal({ title, body, onClose, t }: InfoModalProps) {
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
-          <button className="icon-btn" onClick={onClose}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label={t('closeModal')}>
+            <CloseIcon />
+          </button>
         </div>
         <div className="modal-body">
           {body.split('\n').map((paragraph, i) => (

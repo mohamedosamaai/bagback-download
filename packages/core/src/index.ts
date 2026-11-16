@@ -1,4 +1,4 @@
-export type JobStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed';
+export type JobStatus = 'idle' | 'queued' | 'running' | 'paused' | 'completed' | 'failed';
 
 export interface Job {
   id: string;
@@ -7,14 +7,52 @@ export interface Job {
   progress: number;
   title?: string;
   format?: string;
+  audioOnly?: boolean;
+  mediaType?: 'video' | 'audio';
   filePath?: string;
   fileName?: string;
   fileSize?: number;
   gcsObject?: string;
   contentType?: string;
+  batchId?: string;
+  batchTitle?: string;
+  archived?: boolean;
+  savedOnDeviceAt?: string;
   error?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DailyStat {
+  date: string;
+  analyses: number;
+  downloadsStarted: number;
+  downloadsCompleted: number;
+  downloadsFailed: number;
+  bytesProcessed: number;
+}
+
+export interface UsageStats {
+  startedAt: string;
+  updatedAt: string;
+  totalAnalyses: number;
+  totalDownloadsStarted: number;
+  totalDownloadsCompleted: number;
+  totalDownloadsFailed: number;
+  totalPlaylistsQueued: number;
+  totalAutoSavedFiles: number;
+  totalBytesProcessed: number;
+  avgDurationMs: number;
+  platforms: Record<string, number>;
+  daily: DailyStat[];
+  runtime: {
+    activeDownloads: number;
+    queuedDownloads: number;
+    activeSseClients: number;
+    uptimeSeconds: number;
+    ytdlpVersion: string;
+    gcsEnabled: boolean;
+  };
 }
 
 export interface FormatInfo {

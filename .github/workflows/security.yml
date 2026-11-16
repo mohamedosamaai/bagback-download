@@ -27,6 +27,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Audit NPM Dependencies
-        run: |
-          npm audit --audit-level=high || true
+      - name: Audit Production NPM Dependencies
+        run: npm audit --omit=dev --audit-level=high

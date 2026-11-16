@@ -36,6 +36,9 @@ jobs:
       - name: Type check — server
         run: cd apps/server && npx tsc --noEmit
 
+      - name: Run unit & security tests
+        run: npm test
+
       - name: Build all workspaces
         run: npm run build
 

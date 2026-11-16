@@ -10,6 +10,29 @@ import tls from 'tls';
 import rateLimit from 'express-rate-limit';
 import { Storage, Bucket } from '@google-cloud/storage';
 import type { Job, FormatInfo, PlaylistItem } from '@bagback-download/core';
+import {
+  isValidJobId,
+  getMediaContentType,
+  buildContentDisposition,
+  resolveSafeLocalFile,
+  sanitizeJobForClient,
+  parseByteRange,
+  assertPublicTarget,
+  validatePublicMediaUrl,
+  detectPlatform,
+} from './security';
+import {
+  initStats,
+  refreshStatsFromGcs,
+  setCachedYtdlpVersion,
+  recordAnalyzeStat,
+  recordDownloadStartStat,
+  recordDownloadCompleteStat,
+  recordDownloadFailStat,
+  recordAutoSaveStat,
+  getUsageStatsSnapshot,
+} from './stats';
+import { streamFilesToZip, createZipPassThrough, ZipInputEntry } from './zipStream';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -17,7 +40,7 @@ const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || path.resolve(__dirname, '..', '
 const STATIC_DIR = process.env.STATIC_DIR || path.join(__dirname, '..', 'static');
 const GCS_BUCKET_NAME = (process.env.GCS_BUCKET || '').trim();
 const JOB_MAX_AGE_MS = 2 * 60 * 60 * 1000;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ARCHIVED_MAX_AGE_MS = 15 * 60 * 1000; // Purge saved-on-device server artifacts after 15 mins to minimize storage cost
 
 if (!fs.existsSync(DOWNLOAD_DIR)) {
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
@@ -26,54 +49,9 @@ if (!fs.existsSync(DOWNLOAD_DIR)) {
 const gcsBucket: Bucket | null = GCS_BUCKET_NAME ? new Storage().bucket(GCS_BUCKET_NAME) : null;
 const jobs = new Map<string, Job>();
 const lastGcsSyncAt = new Map<string, number>();
+const pausedJobs = new Set<string>();
+const activeJobAborters = new Map<string, () => void>();
 let gcsListCache: { jobs: Job[]; fetchedAt: number } = { jobs: [], fetchedAt: 0 };
-
-/** Validates that a job ID is strictly a UUID v4-formatted identifier. */
-function isValidJobId(id: string | undefined): id is string {
-  return typeof id === 'string' && UUID_RE.test(id);
-}
-
-/** Resolves the MIME type from a media filename or path extension. */
-function getMediaContentType(fileNameOrPath: string): string {
-  const ext = path.extname(fileNameOrPath).slice(1).toLowerCase();
-  const mimeMap: Record<string, string> = {
-    mp4: 'video/mp4',
-    mp3: 'audio/mpeg',
-    webm: 'video/webm',
-    mkv: 'video/x-matroska',
-    m4a: 'audio/mp4',
-    mov: 'video/quicktime',
-    aac: 'audio/aac',
-    ogg: 'audio/ogg',
-    opus: 'audio/opus',
-    wav: 'audio/wav',
-  };
-  return mimeMap[ext] || 'application/octet-stream';
-}
-
-/** Builds an RFC 5987 attachment Content-Disposition header safe against header injection. */
-function buildContentDisposition(rawFileName: string): string {
-  const sanitized = (rawFileName || 'download').replace(/[\r\n\x00-\x1F"/\\]+/g, '_').trim() || 'download';
-  const ext = path.extname(sanitized).replace(/[^a-zA-Z0-9.]/g, '');
-  const asciiFallback = sanitized.replace(/[^\x20-\x7E]/g, '').replace(/[";]+/g, '_').trim() || `bagback-download${ext}`;
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(sanitized)}`;
-}
-
-/** Verifies and resolves a local downloaded file path strictly inside DOWNLOAD_DIR for a validated job ID. */
-function resolveSafeLocalFile(id: string, filePath?: string): string | null {
-  if (!isValidJobId(id) || !filePath) return null;
-  const resolvedRoot = path.resolve(DOWNLOAD_DIR);
-  const resolvedTarget = path.resolve(filePath);
-  if (!resolvedTarget.startsWith(resolvedRoot + path.sep)) return null;
-  if (!path.basename(resolvedTarget).startsWith(`${id}-`)) return null;
-  return fs.existsSync(resolvedTarget) ? resolvedTarget : null;
-}
-
-/** Serializes a job without exposing internal server filesystem paths. */
-function sanitizeJobForClient(job: Job): Job {
-  const { filePath: _omit, ...safeJob } = job;
-  return safeJob;
-}
 
 /** Persists job metadata to GCS when GCS_BUCKET is configured, throttling intermediate progress writes. */
 async function syncJobToGcs(job: Job, immediate = false): Promise<void> {
@@ -183,7 +161,7 @@ async function getMergedJobsList(): Promise<Job[]> {
 /** Deletes both local temporary files and GCS objects for a job ID. */
 async function deleteJobArtifacts(id: string, job?: Job): Promise<void> {
   if (!isValidJobId(id)) return;
-  const localSafe = resolveSafeLocalFile(id, job?.filePath);
+  const localSafe = resolveSafeLocalFile(id, DOWNLOAD_DIR, job?.filePath);
   if (localSafe) {
     try { fs.unlinkSync(localSafe); } catch {}
   }
@@ -199,11 +177,17 @@ async function deleteJobArtifacts(id: string, job?: Job): Promise<void> {
   lastGcsSyncAt.delete(id);
   if (gcsBucket) {
     gcsListCache.fetchedAt = 0;
-    await Promise.allSettled([
+    const ops: Promise<unknown>[] = [
       gcsBucket.file(`jobs/${id}.json`).delete({ ignoreNotFound: true }),
       gcsBucket.deleteFiles({ prefix: `media/${id}/`, force: true }).catch(() => {}),
-    ]);
+    ];
+    if (job?.batchId && isValidJobId(job.batchId)) {
+      ops.push(gcsBucket.deleteFiles({ prefix: `archives/${job.batchId}`, force: true }).catch(() => {}));
+    }
+    await Promise.allSettled(ops);
   }
+  pausedJobs.delete(id);
+  activeJobAborters.delete(id);
 }
 
 const allowedOrigins = (
@@ -224,7 +208,14 @@ app.use(cors({
   },
   methods: ['GET', 'HEAD', 'POST', 'DELETE'],
 }));
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
+app.use((_req: Request, res: Response, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 app.use('/api', (_req: Request, res: Response, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
@@ -695,7 +686,7 @@ function isPurePlaylistUrl(url: string): boolean {
 }
 
 /**
- * Extracts playlist metadata and items (up to 25 items) using yt-dlp flat-playlist mode.
+ * Extracts playlist metadata and items (up to 50 items) using yt-dlp flat-playlist mode.
  */
 async function extractPlaylistData(url: string): Promise<{
   title: string;
@@ -710,7 +701,7 @@ async function extractPlaylistData(url: string): Promise<{
       '--flat-playlist',
       '--dump-single-json',
       '--yes-playlist',
-      '--playlist-end', '25',
+      '--playlist-end', '50',
       '--no-warnings',
     ];
     const proxy = getCustomProxy();
@@ -796,17 +787,85 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+const healthLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 app.set('trust proxy', 2);
 
 // ─── Routes ───────────────────────────────────────────────────────────────
 
-app.get('/api/health', async (_req: Request, res: Response) => {
+let healthYtdlpCache: { version: string; checkedAt: number } = { version: 'active', checkedAt: 0 };
+
+app.get('/api/health', healthLimiter, async (_req: Request, res: Response) => {
+  let diskOk = false;
   try {
-    const version = await ytdlp(['--version']);
-    res.json({ status: 'ok', ytdlp: version });
+    fs.accessSync(DOWNLOAD_DIR, fs.constants.W_OK);
+    diskOk = true;
   } catch {
-    res.json({ status: 'ok', ytdlp: 'active' });
+    diskOk = false;
   }
+
+  let version = healthYtdlpCache.version;
+  if (Date.now() - healthYtdlpCache.checkedAt > 60000 || version === 'active') {
+    try {
+      version = await ytdlp(['--version']);
+      healthYtdlpCache = { version, checkedAt: Date.now() };
+      setCachedYtdlpVersion(version);
+    } catch {
+      version = 'unavailable';
+    }
+  }
+
+  let gcsStatus: 'ok' | 'degraded' | 'disabled' = 'disabled';
+  if (gcsBucket) {
+    try {
+      const [exists] = await Promise.race([
+        gcsBucket.exists(),
+        new Promise<[boolean]>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500)),
+      ]);
+      gcsStatus = exists ? 'ok' : 'degraded';
+    } catch {
+      gcsStatus = 'degraded';
+    }
+  }
+
+  const healthy = diskOk && version !== 'unavailable';
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'ok' : 'degraded',
+    ytdlp: version,
+    disk: diskOk ? 'ok' : 'error',
+    gcs: gcsStatus,
+    uptimeSeconds: Math.floor(process.uptime()),
+  });
+});
+
+app.get('/api/stats', apiLimiter, async (_req: Request, res: Response) => {
+  await refreshStatsFromGcs();
+  res.json(
+    getUsageStatsSnapshot({
+      activeDownloads: activeDownloadsCount,
+      queuedDownloads: pendingQueue.length,
+      activeSseClients: sseClients.length,
+      gcsEnabled: Boolean(gcsBucket),
+    })
+  );
+});
+
+app.post('/api/stats/event', apiLimiter, (req: Request, res: Response) => {
+  const { event, count } = (req.body || {}) as { event?: string; count?: number };
+  if (event !== 'autosave_file_saved' && event !== 'playlist_folder_saved') {
+    res.status(400).json({ error: 'Unsupported telemetry event' });
+    return;
+  }
+  const safeCount =
+    typeof count === 'number' && Number.isFinite(count)
+      ? Math.max(1, Math.min(50, Math.floor(count)))
+      : 1;
+  recordAutoSaveStat(safeCount);
+  res.json({ recorded: true });
 });
 
 app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
@@ -816,10 +875,14 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
     return;
   }
 
-  url = url.trim();
-  if (!/^https?:\/\//i.test(url)) {
-    url = 'https://' + url;
+  try {
+    url = await assertPublicTarget(url);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Blocked or invalid URL' });
+    return;
   }
+
+  recordAnalyzeStat(detectPlatform(url));
 
   const defaultPresetFormats: FormatInfo[] = [
     { id: 'bestvideo+bestaudio/best', ext: 'mp4', resolution: '1080p (Best)', vcodec: 'h264' },
@@ -914,6 +977,72 @@ app.post('/api/analyze', apiLimiter, async (req: Request, res: Response) => {
         });
         return;
       }
+
+      // Retry non-YouTube extraction with Chrome TLS impersonation (curl_cffi) / direct media extension fallback
+      try {
+        const impArgs = [
+          ...getBaseEngineArgs(),
+          '--impersonate', 'chrome',
+          ...getCookiesArg(),
+          '--dump-json',
+          '--no-playlist',
+          '--flat-playlist',
+        ];
+        const proxy = getCustomProxy() || lastWorkingProxy || proxyCache.proxies[0];
+        if (proxy) {
+          impArgs.push('--proxy', /^(socks5h?|https?):\/\//i.test(proxy) ? proxy : `http://${proxy}`);
+        }
+        impArgs.push(url);
+        const rawImp = await ytdlp(impArgs);
+        const infoImp = JSON.parse(rawImp);
+        const formatsImp: FormatInfo[] = (infoImp.formats || [])
+          .filter((f: any) => f.ext && (f.vcodec !== 'none' || f.acodec !== 'none'))
+          .map((f: any) => ({
+            id: f.format_id,
+            ext: f.ext,
+            resolution: f.resolution || (f.height ? `${f.height}p` : undefined),
+            fps: f.fps,
+            filesize: f.filesize,
+            vcodec: f.vcodec,
+            acodec: f.acodec,
+          }))
+          .slice(0, 20);
+        res.json(attachPlaylistFields({
+          title: infoImp.title || 'Media Download',
+          thumbnail: infoImp.thumbnail,
+          duration: infoImp.duration,
+          uploader: infoImp.uploader,
+          formats: formatsImp.length > 0 ? formatsImp : defaultPresetFormats,
+        }));
+        return;
+      } catch {
+        // Check if URL directly points to a downloadable media file
+        try {
+          const parsedUrl = new URL(url);
+          const extMatch = /\.(mp4|mp3|m4a|webm|mkv|mov|wav|ogg|aac|flac)$/i.exec(parsedUrl.pathname);
+          if (extMatch) {
+            const ext = extMatch[1].toLowerCase();
+            const isAudioExt = ['mp3', 'm4a', 'wav', 'ogg', 'aac', 'flac'].includes(ext);
+            const rawName = decodeURIComponent(path.basename(parsedUrl.pathname, `.${ext}`) || 'Media File').slice(0, 80);
+            res.json({
+              title: rawName,
+              duration: 0,
+              uploader: parsedUrl.hostname,
+              formats: [
+                {
+                  id: isAudioExt ? 'bestaudio/best' : 'bestvideo+bestaudio/best',
+                  ext,
+                  resolution: isAudioExt ? 'Audio' : 'Direct Media',
+                  vcodec: isAudioExt ? 'none' : 'h264',
+                  acodec: 'aac',
+                },
+              ],
+            });
+            return;
+          }
+        } catch {}
+      }
+
       console.warn('[Universal yt-dlp analyze failed]', err?.message || err);
       res.status(422).json({ error: sanitizeErrorMessage(err?.message || '', url) });
       return;
@@ -1059,43 +1188,66 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
   };
 
   if (Array.isArray(items) && items.length > 0) {
-    const validItems = items
+    const candidateItems = items
       .filter((item) => item && typeof item.url === 'string' && item.url.trim().length > 0)
-      .slice(0, 25);
+      .slice(0, 50);
+
+    const validatedHosts = new Map<string, boolean>();
+    const validItems: Array<{ url: string; title?: string }> = [];
+    for (const item of candidateItems) {
+      const check = validatePublicMediaUrl(item.url);
+      if (!check.valid || !check.normalizedUrl || !check.hostname) continue;
+      let hostAllowed = validatedHosts.get(check.hostname);
+      if (hostAllowed === undefined) {
+        try {
+          await assertPublicTarget(check.normalizedUrl);
+          hostAllowed = true;
+        } catch {
+          hostAllowed = false;
+        }
+        validatedHosts.set(check.hostname, hostAllowed);
+      }
+      if (hostAllowed) {
+        validItems.push({ url: check.normalizedUrl, title: item.title });
+      }
+    }
 
     if (validItems.length === 0) {
-      res.status(400).json({ error: 'No valid playlist items provided' });
+      res.status(400).json({ error: 'No valid public playlist items provided' });
       return;
     }
 
+    const batchId = uuidv4();
+    const cleanBatchTitle = (title || 'Playlist').trim().slice(0, 100);
     const ids: string[] = [];
     const now = Date.now();
     validItems.forEach((item, idx) => {
-      let itemUrl = item.url.trim();
-      if (!/^https?:\/\//i.test(itemUrl)) {
-        itemUrl = 'https://' + itemUrl;
-      }
       const id = uuidv4();
       const timestamp = new Date(now + idx).toISOString();
       const job: Job = {
         id,
-        url: itemUrl,
+        url: item.url,
         title: item.title,
         status: 'queued',
         progress: 0,
         format,
+        audioOnly,
+        mediaType: audioOnly ? 'audio' : 'video',
+        batchId,
+        batchTitle: cleanBatchTitle,
         createdAt: timestamp,
         updatedAt: timestamp,
       };
       jobs.set(id, job);
       void syncJobToGcs(job, true);
       ids.push(id);
-      pendingQueue.push({ id, url: itemUrl, format, audioOnly });
+      pendingQueue.push({ id, url: item.url, format, audioOnly });
     });
 
+    recordDownloadStartStat(ids.length, true);
     broadcastJobs();
     processDownloadQueue();
-    res.json({ id: ids[0], ids, count: ids.length });
+    res.json({ id: ids[0], ids, batchId, batchTitle: cleanBatchTitle, count: ids.length });
     return;
   }
 
@@ -1104,38 +1256,55 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
     return;
   }
 
-  url = url.trim();
-  if (!/^https?:\/\//i.test(url)) {
-    url = 'https://' + url;
+  try {
+    url = await assertPublicTarget(url);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Blocked or invalid URL' });
+    return;
   }
 
   if (playlist && isPlaylistUrl(url)) {
     const extracted = await extractPlaylistData(url);
     if (extracted && extracted.items.length > 0) {
-      const ids: string[] = [];
-      const now = Date.now();
-      extracted.items.forEach((item, idx) => {
-        const id = uuidv4();
-        const timestamp = new Date(now + idx).toISOString();
-        const job: Job = {
-          id,
-          url: item.url,
-          title: item.title,
-          status: 'queued',
-          progress: 0,
-          format,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-        jobs.set(id, job);
-        void syncJobToGcs(job, true);
-        ids.push(id);
-        pendingQueue.push({ id, url: item.url, format, audioOnly });
-      });
-      broadcastJobs();
-      processDownloadQueue();
-      res.json({ id: ids[0], ids, count: ids.length });
-      return;
+      const safeExtracted = extracted.items
+        .map((item) => ({ item, check: validatePublicMediaUrl(item.url) }))
+        .filter((x) => x.check.valid && x.check.normalizedUrl)
+        .slice(0, 50);
+
+      if (safeExtracted.length > 0) {
+        const batchId = uuidv4();
+        const cleanBatchTitle = (extracted.title || title || 'Playlist').trim().slice(0, 100);
+        const ids: string[] = [];
+        const now = Date.now();
+        safeExtracted.forEach(({ item, check }, idx) => {
+          const itemUrl = check.normalizedUrl as string;
+          const id = uuidv4();
+          const timestamp = new Date(now + idx).toISOString();
+          const job: Job = {
+            id,
+            url: itemUrl,
+            title: item.title,
+            status: 'queued',
+            progress: 0,
+            format,
+            audioOnly,
+            mediaType: audioOnly ? 'audio' : 'video',
+            batchId,
+            batchTitle: cleanBatchTitle,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          };
+          jobs.set(id, job);
+          void syncJobToGcs(job, true);
+          ids.push(id);
+          pendingQueue.push({ id, url: itemUrl, format, audioOnly });
+        });
+        recordDownloadStartStat(ids.length, true);
+        broadcastJobs();
+        processDownloadQueue();
+        res.json({ id: ids[0], ids, batchId, batchTitle: cleanBatchTitle, count: ids.length });
+        return;
+      }
     }
   }
 
@@ -1148,12 +1317,15 @@ app.post('/api/download', apiLimiter, async (req: Request, res: Response) => {
     status: 'queued',
     progress: 0,
     format,
+    audioOnly,
+    mediaType: audioOnly ? 'audio' : 'video',
     createdAt: now,
     updatedAt: now,
   };
   jobs.set(id, job);
   void syncJobToGcs(job, true);
   pendingQueue.push({ id, url, format, audioOnly });
+  recordDownloadStartStat(1, false);
   broadcastJobs();
   processDownloadQueue();
 
@@ -1404,12 +1576,18 @@ async function downloadYouTubeDirectAndroid(
 }
 
 async function runDownload(id: string, url: string, format: string, audioOnly: boolean) {
-  updateJob(id, { status: 'running', progress: 0 });
+  if (pausedJobs.has(id)) return;
+  const startedAtMs = Date.now();
+  const prevProgress = jobs.get(id)?.progress || 0;
+  updateJob(id, { status: 'running', progress: prevProgress, error: undefined });
 
   // Auto-fail if stuck at 0% for more than 4 minutes
   const jobTimeout = setTimeout(() => {
+    if (pausedJobs.has(id)) return;
     const currentJob = jobs.get(id);
     if (currentJob && currentJob.status === 'running' && currentJob.progress === 0) {
+      activeJobAborters.get(id)?.();
+      recordDownloadFailStat();
       updateJob(id, {
         status: 'failed',
         error: 'انتهت مهلة التحميل — قد يكون الرابط محظوراً أو المزود غير متاح'
@@ -1422,9 +1600,13 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
   const ffmpegAvailable = hasFfmpeg();
   const isYt = isYouTubeUrl(url);
 
-  // Build yt-dlp arguments with universal support + bgutil PO Token + JS Runtimes
-  const buildArgs = (clientStrategy?: string, proxyOverride?: string) => {
+  // Build yt-dlp arguments with universal support + bgutil PO Token + JS Runtimes + continue resume
+  const buildArgs = (clientStrategy?: string, proxyOverride?: string, impersonate = false) => {
     const base: string[] = [...getBaseEngineArgs()];
+
+    if (impersonate) {
+      base.push('--impersonate', 'chrome');
+    }
 
     if (isYt && clientStrategy) {
       base.push('--extractor-args', `youtube:player_client=${clientStrategy}`);
@@ -1432,6 +1614,7 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
 
     base.push(
       ...getCookiesArg(),
+      '--continue',
       '--retries', proxyOverride ? '1' : '2',
       '--fragment-retries', proxyOverride ? '2' : '3',
       '--file-access-retries', '2',
@@ -1497,6 +1680,9 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
         no_proxy: '127.0.0.1,localhost,::1',
       };
       const proc = spawn(binary, args, { env: childEnv });
+      activeJobAborters.set(id, () => {
+        try { proc.kill('SIGTERM'); } catch {}
+      });
 
       const handleData = (data: Buffer) => {
         const text = data.toString();
@@ -1530,11 +1716,13 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
       });
 
       proc.on('error', (err) => {
+        activeJobAborters.delete(id);
         console.error('[yt-dlp spawn error]', err);
         resolve({ success: false, lastError: err.message });
       });
 
       proc.on('close', (code) => {
+        activeJobAborters.delete(id);
         resolve({ success: code === 0, lastError: lastStderr });
       });
     });
@@ -1542,8 +1730,15 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
 
   let result: { success: boolean; lastError: string } = { success: false, lastError: '' };
   if (!isYt) {
-    // Universal platforms: single clean high-speed execution
+    // Universal platforms: single fast execution, then TLS impersonation + proxy fallback if blocked
     result = await executeYtDlp(buildArgs());
+    if (!result.success && !pausedJobs.has(id)) {
+      const impProxy = lastWorkingProxy || proxyCache.proxies[0];
+      result = await executeYtDlp(buildArgs(undefined, undefined, true));
+      if (!result.success && !pausedJobs.has(id) && impProxy) {
+        result = await executeYtDlp(buildArgs(undefined, impProxy, true));
+      }
+    }
   } else {
     const primaryStrat = 'mweb,web_safari,visionos;fetch_pot=always;webpage_skip=player_response';
     const triedProxies = new Set<string>();
@@ -1624,8 +1819,16 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
   const lastError = result.lastError;
 
   clearTimeout(jobTimeout);
+  activeJobAborters.delete(id);
 
-  const files = fs.readdirSync(DOWNLOAD_DIR).filter((f) => f.startsWith(id));
+  if (pausedJobs.has(id)) {
+    updateJob(id, { status: 'paused' }, true);
+    return;
+  }
+
+  const files = fs.readdirSync(DOWNLOAD_DIR).filter(
+    (f) => f.startsWith(id) && !f.endsWith('.part') && !f.endsWith('.ytdl') && !f.startsWith('tmp-')
+  );
   const validFile = files.find((f) => {
     try {
       const p = path.join(DOWNLOAD_DIR, f);
@@ -1684,12 +1887,14 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
           };
           jobs.set(id, completedJob);
           await syncJobToGcs(completedJob, true);
+          recordDownloadCompleteStat(Date.now() - startedAtMs, stat.size);
           broadcastJobs();
         }
         return;
       }
     }
 
+    recordDownloadCompleteStat(Date.now() - startedAtMs, stat.size);
     updateJob(id, {
       status: 'completed',
       progress: 100,
@@ -1700,8 +1905,10 @@ async function runDownload(id: string, url: string, format: string, audioOnly: b
       fileSize: stat.size,
     }, true);
   } else if (success) {
+    recordDownloadCompleteStat(Date.now() - startedAtMs, 0);
     updateJob(id, { status: 'completed', progress: 100 }, true);
   } else {
+    recordDownloadFailStat();
     updateJob(id, {
       status: 'failed',
       error: sanitizeErrorMessage(lastError, url),
@@ -1768,12 +1975,250 @@ app.get('/api/jobs/:id', apiLimiter, async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Invalid job ID' });
     return;
   }
-  const job = jobs.get(id) || (await loadJobFromGcs(id));
+  let job = jobs.get(id);
+  if (!job || (job.status !== 'completed' && job.status !== 'failed' && gcsBucket)) {
+    const remote = await loadJobFromGcs(id);
+    if (remote) job = remote;
+  }
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
     return;
   }
   res.json(sanitizeJobForClient(job));
+});
+
+app.post('/api/jobs/:id/pause', apiLimiter, async (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (!isValidJobId(id)) {
+    res.status(400).json({ error: 'Invalid job ID' });
+    return;
+  }
+  const job = jobs.get(id) || (await loadJobFromGcs(id));
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  if (job.status === 'completed' || job.status === 'failed') {
+    res.json(sanitizeJobForClient(job));
+    return;
+  }
+  pausedJobs.add(id);
+  for (let i = pendingQueue.length - 1; i >= 0; i--) {
+    if (pendingQueue[i].id === id) pendingQueue.splice(i, 1);
+  }
+  activeJobAborters.get(id)?.();
+  updateJob(id, { status: 'paused' }, true);
+  res.json(sanitizeJobForClient(jobs.get(id) || { ...job, status: 'paused' }));
+});
+
+app.post('/api/jobs/:id/resume', apiLimiter, async (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (!isValidJobId(id)) {
+    res.status(400).json({ error: 'Invalid job ID' });
+    return;
+  }
+  const job = jobs.get(id) || (await loadJobFromGcs(id));
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  if (job.status === 'completed' || job.status === 'running') {
+    res.json(sanitizeJobForClient(job));
+    return;
+  }
+  pausedJobs.delete(id);
+  const audioOnly = Boolean(job.audioOnly || job.mediaType === 'audio' || job.format === 'bestaudio/best');
+  const format = job.format || (audioOnly ? 'bestaudio/best' : 'bestvideo+bestaudio/best');
+  jobs.set(id, { ...job, status: 'queued', error: undefined, updatedAt: new Date().toISOString() });
+  if (!pendingQueue.some((p) => p.id === id)) {
+    pendingQueue.push({ id, url: job.url, format, audioOnly });
+  }
+  void syncJobToGcs(jobs.get(id)!, true);
+  broadcastJobs();
+  processDownloadQueue();
+  res.json(sanitizeJobForClient(jobs.get(id)!));
+});
+
+app.post('/api/jobs/:id/retry', apiLimiter, async (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (!isValidJobId(id)) {
+    res.status(400).json({ error: 'Invalid job ID' });
+    return;
+  }
+  const job = jobs.get(id) || (await loadJobFromGcs(id));
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  pausedJobs.delete(id);
+  const audioOnly = Boolean(job.audioOnly || job.mediaType === 'audio' || job.format === 'bestaudio/best');
+  const format = job.format || (audioOnly ? 'bestaudio/best' : 'bestvideo+bestaudio/best');
+  jobs.set(id, {
+    ...job,
+    status: 'queued',
+    progress: 0,
+    error: undefined,
+    updatedAt: new Date().toISOString(),
+  });
+  if (!pendingQueue.some((p) => p.id === id)) {
+    pendingQueue.push({ id, url: job.url, format, audioOnly });
+  }
+  void syncJobToGcs(jobs.get(id)!, true);
+  broadcastJobs();
+  processDownloadQueue();
+  res.json(sanitizeJobForClient(jobs.get(id)!));
+});
+
+app.post('/api/jobs/:id/archived', apiLimiter, async (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (!isValidJobId(id)) {
+    res.status(400).json({ error: 'Invalid job ID' });
+    return;
+  }
+  const job = jobs.get(id) || (await loadJobFromGcs(id));
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  const savedAt = job.savedOnDeviceAt || new Date().toISOString();
+  const updated: Job = {
+    ...job,
+    archived: true,
+    savedOnDeviceAt: savedAt,
+    updatedAt: new Date().toISOString(),
+  };
+  jobs.set(id, updated);
+  await syncJobToGcs(updated, true);
+  broadcastJobs();
+  res.json({ archived: true, id, savedOnDeviceAt: savedAt });
+});
+
+app.post('/api/batches/:batchId/archived', apiLimiter, async (req: Request, res: Response) => {
+  const batchId = req.params.batchId;
+  if (!isValidJobId(batchId)) {
+    res.status(400).json({ error: 'Invalid batch ID' });
+    return;
+  }
+  const list = await getMergedJobsList();
+  const targets = list.filter((j) => j.batchId === batchId && j.status === 'completed');
+  const savedAt = new Date().toISOString();
+  await Promise.all(
+    targets.map(async (item) => {
+      const local = jobs.get(item.id);
+      const updated: Job = {
+        ...(local || item),
+        archived: true,
+        savedOnDeviceAt: item.savedOnDeviceAt || savedAt,
+        updatedAt: savedAt,
+      };
+      jobs.set(item.id, updated);
+      await syncJobToGcs(updated, true);
+    })
+  );
+  broadcastJobs();
+  res.json({ archived: true, count: targets.length, savedOnDeviceAt: savedAt });
+});
+
+app.get('/api/batches/:batchId/zip', apiLimiter, async (req: Request, res: Response) => {
+  const batchId = req.params.batchId;
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+
+  if (!isValidJobId(batchId)) {
+    res.status(400).json({ error: 'Invalid batch ID' });
+    return;
+  }
+
+  const allJobs = await getMergedJobsList();
+  const batchJobs = allJobs
+    .filter((j) => j.batchId === batchId && j.status === 'completed')
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  if (batchJobs.length === 0) {
+    res.status(404).json({ error: 'No completed playlist files available' });
+    return;
+  }
+
+  const zipTitle = (batchJobs[0].batchTitle || 'Bagback-Playlist').trim().replace(/[<>:"/\\|?*\x00-\x1F]+/g, '_').slice(0, 80) || 'Bagback-Playlist';
+  const disposition = buildContentDisposition(`${zipTitle}.zip`);
+
+  // 1. Primary Cloud Run path: stream GCS objects into a cached GCS archive object & redirect 302 to Signed URL
+  if (gcsBucket) {
+    const archiveObject = `archives/${batchId}-${batchJobs.length}.zip`;
+    const archiveFile = gcsBucket.file(archiveObject);
+    try {
+      const [exists] = await archiveFile.exists();
+      if (!exists) {
+        const entries: ZipInputEntry[] = [];
+        for (const item of batchJobs) {
+          if (item.gcsObject) {
+            const mediaFile = gcsBucket.file(item.gcsObject);
+            const [objExists] = await mediaFile.exists();
+            if (objExists) {
+              const ext = path.extname(item.gcsObject) || '.mp4';
+              const entryName = item.fileName || `${item.title || item.id}${ext}`;
+              entries.push({
+                name: entryName,
+                createStream: () => mediaFile.createReadStream(),
+              });
+            }
+          }
+        }
+        if (entries.length === 0) {
+          res.status(404).json({ error: 'Playlist media objects unavailable on storage' });
+          return;
+        }
+        const writeStream = archiveFile.createWriteStream({
+          resumable: true,
+          metadata: {
+            contentType: 'application/zip',
+            cacheControl: 'private, max-age=3600',
+          },
+        });
+        await streamFilesToZip(entries, writeStream);
+      }
+
+      const [signedUrl] = await archiveFile.getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: Date.now() + 2 * 60 * 60 * 1000,
+        responseDisposition: disposition,
+        responseType: 'application/zip',
+      });
+      const parsed = new URL(signedUrl);
+      if (parsed.protocol === 'https:' && parsed.hostname === 'storage.googleapis.com') {
+        res.redirect(302, parsed.toString());
+        return;
+      }
+    } catch (err: any) {
+      console.error(`[ZIP] Failed building GCS playlist archive for ${batchId}:`, err?.message || err);
+      res.status(500).json({ error: 'Failed creating playlist archive' });
+      return;
+    }
+  }
+
+  // 2. Local Docker fallback: stream ZIP straight from local validated files
+  const localEntries: ZipInputEntry[] = [];
+  for (const item of batchJobs) {
+    const localJob = jobs.get(item.id) || item;
+    const safeLocal = resolveSafeLocalFile(item.id, DOWNLOAD_DIR, localJob.filePath);
+    if (safeLocal) {
+      const entryName = item.fileName || path.basename(safeLocal).replace(`${item.id}-`, '');
+      localEntries.push({
+        name: entryName,
+        createStream: () => fs.createReadStream(safeLocal),
+      });
+    }
+  }
+
+  if (localEntries.length === 0) {
+    res.status(404).json({ error: 'Playlist files not found on disk' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', disposition);
+  createZipPassThrough(localEntries).pipe(res);
 });
 
 app.get('/api/jobs/:id/file', apiLimiter, async (req: Request, res: Response) => {
@@ -1827,7 +2272,7 @@ app.get('/api/jobs/:id/file', apiLimiter, async (req: Request, res: Response) =>
   }
 
   // 2. Local / Docker disk fallback with full HTTP 206 Range + HEAD support
-  const safeLocalPath = resolveSafeLocalFile(id, job.filePath);
+  const safeLocalPath = resolveSafeLocalFile(id, DOWNLOAD_DIR, job.filePath);
   if (!safeLocalPath) {
     res.status(404).json({ error: 'File not found on storage' });
     return;
@@ -1847,19 +2292,13 @@ app.get('/api/jobs/:id/file', apiLimiter, async (req: Request, res: Response) =>
 
   const rangeHeader = req.headers.range;
   if (rangeHeader) {
-    const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
-    if (!match) {
+    const parsedRange = parseByteRange(rangeHeader, totalSize);
+    if (!parsedRange.ok) {
       res.setHeader('Content-Range', `bytes */${totalSize}`);
       res.status(416).end();
       return;
     }
-    const start = match[1] ? parseInt(match[1], 10) : Math.max(0, totalSize - parseInt(match[2], 10));
-    const end = match[1] && match[2] ? Math.min(parseInt(match[2], 10), totalSize - 1) : totalSize - 1;
-    if (isNaN(start) || isNaN(end) || start > end || start >= totalSize) {
-      res.setHeader('Content-Range', `bytes */${totalSize}`);
-      res.status(416).end();
-      return;
-    }
+    const { start, end } = parsedRange;
     res.status(206);
     res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
     res.setHeader('Content-Length', end - start + 1);
@@ -1914,15 +2353,21 @@ if (fs.existsSync(STATIC_DIR)) {
 
 // ─── Auto-Cleanup Job ──────────────────────────────────────────────────────────
 
-const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
+const CLEANUP_INTERVAL = 5 * 60 * 1000; // Every 5 minutes for rapid archived cost cleanup
+
+function isJobExpired(job: Job, now: number): boolean {
+  if (job.archived && job.savedOnDeviceAt) {
+    return now - new Date(job.savedOnDeviceAt).getTime() > ARCHIVED_MAX_AGE_MS;
+  }
+  return now - new Date(job.createdAt).getTime() > JOB_MAX_AGE_MS;
+}
 
 setInterval(() => {
   const now = Date.now();
-  console.log('[Cleanup] Running periodic cleanup job...');
+  let deletedCount = 0;
   for (const [id, job] of jobs.entries()) {
-    const jobAge = now - new Date(job.createdAt).getTime();
-    if (jobAge > JOB_MAX_AGE_MS) {
-      console.log(`[Cleanup] Deleting old job ${id}`);
+    if (isJobExpired(job, now)) {
+      deletedCount += 1;
       void deleteJobArtifacts(id, job);
       jobs.delete(id);
     }
@@ -1930,12 +2375,16 @@ setInterval(() => {
   if (gcsBucket) {
     void listJobsFromGcs().then((remote) => {
       for (const r of remote) {
-        if (now - new Date(r.createdAt).getTime() > JOB_MAX_AGE_MS) {
+        if (isJobExpired(r, now)) {
           void deleteJobArtifacts(r.id, r);
           jobs.delete(r.id);
         }
       }
     });
+  }
+  if (deletedCount > 0) {
+    console.log(`[Cleanup] Purged ${deletedCount} expired/archived job(s)`);
+    broadcastJobs();
   }
 }, CLEANUP_INTERVAL);
 
@@ -1944,4 +2393,11 @@ app.listen(PORT, () => {
   console.log(`[Bagback Download Server] download dir: ${DOWNLOAD_DIR}`);
   console.log(`[Bagback Download Server] static dir: ${STATIC_DIR}`);
   console.log(`[Bagback Download Server] GCS bucket: ${GCS_BUCKET_NAME || 'disabled (local mode)'}`);
+  void initStats(gcsBucket);
+  void ytdlp(['--version'])
+    .then((ver) => {
+      healthYtdlpCache = { version: ver, checkedAt: Date.now() };
+      setCachedYtdlpVersion(ver);
+    })
+    .catch(() => {});
 });
