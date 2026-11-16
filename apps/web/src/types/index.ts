@@ -3,17 +3,33 @@ export type Lang = 'ar' | 'en';
 export interface Job {
   id: string;
   url: string;
-  status: 'queued' | 'running' | 'completed' | 'failed';
+  status: 'queued' | 'running' | 'paused' | 'completed' | 'failed';
   progress: number;
   title?: string;
+  format?: string;
+  audioOnly?: boolean;
+  mediaType?: 'video' | 'audio';
   fileName?: string;
   fileSize?: number;
   gcsObject?: string;
   batchId?: string;
   batchTitle?: string;
+  archived?: boolean;
+  savedOnDeviceAt?: string;
   error?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ArchivedDeviceItem {
+  id: string;
+  url: string;
+  title: string;
+  fileName: string;
+  fileSize?: number;
+  mediaType: 'video' | 'audio';
+  batchTitle?: string;
+  savedAt: string;
 }
 
 export interface DailyStat {

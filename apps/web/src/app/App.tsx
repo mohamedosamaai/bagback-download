@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Lang, Job, HistoryItem } from '../types';
+import { Lang, Job, HistoryItem, ArchivedDeviceItem } from '../types';
 import { useTranslation } from '../lib/translations';
 import { api } from '../lib/api';
 import { Header } from '../components/layouts/Header';
@@ -23,6 +23,8 @@ import {
   PlaylistIcon,
   PhoneInstallIcon,
   CloseIcon,
+  ArchiveIcon,
+  TrashIcon,
 } from '../components/ui/Icons';
 import {
   DirectoryHandleLike,
@@ -40,6 +42,59 @@ import {
 import { initAnalytics, trackPageView, trackAnalyticsEvent } from '../lib/analytics';
 
 const SAVED_IDS_STORAGE_KEY = 'bagback-saved-job-ids';
+const SAVED_ARCHIVE_STORAGE_KEY = 'bagback-saved-archive';
+
+type QueueTab = 'all' | 'video' | 'audio' | 'playlist' | 'archive';
+
+interface SeoRouteMeta {
+  titleAr: string;
+  titleEn: string;
+  descAr: string;
+  descEn: string;
+}
+
+const SEO_ROUTES: Record<string, SeoRouteMeta> = {
+  '/youtube-downloader': {
+    titleAr: 'تحميل فيديو من يوتيوب مجاناً — Bagback Download | دونلود يوتيوب HD',
+    titleEn: 'Free YouTube Video Downloader HD — Bagback Download',
+    descAr: 'تحميل ودونلود فيديوهات يوتيوب بأعلى جودة MP4 1080p و 720p بسرعة فائقة وحفظ مباشر على جهازك.',
+    descEn: 'Fast free YouTube video downloader in crisp HD MP4 with instant save.',
+  },
+  '/mp3-converter': {
+    titleAr: 'تحميل صوتيات وأغاني MP3 مجاناً — Bagback Download | دونلود MP3',
+    titleEn: 'Free MP3 Audio Downloader & Converter — Bagback Download',
+    descAr: 'تحويل وتحميل الصوت فقط بصيغة MP3 نقية من الفيديوهات وقوائم التشغيل بضغطة واحدة.',
+    descEn: 'Extract and download crisp MP3 audio tracks from videos and playlists.',
+  },
+  '/playlist-downloader': {
+    titleAr: 'تحميل قائمة تشغيل كاملة بضغطة واحدة ZIP — Bagback Download',
+    titleEn: 'Free Playlist Downloader (Single ZIP) — Bagback Download',
+    descAr: 'تحميل ودونلود قوائم التشغيل الكاملة حتى 50 أغنية أو فيديو دفعة واحدة في ملف ZIP واحد.',
+    descEn: 'Download full playlists up to 50 tracks at once in a single ZIP archive.',
+  },
+  '/download-video': {
+    titleAr: 'برنامج تحميل ودونلود الفيديو مجاناً — Bagback Download',
+    titleEn: 'Free Online Video Download Manager — Bagback Download',
+    descAr: 'موقع تحميل ودونلود الفيديوهات والملفات الصوتية من جميع المواقع بسرعة وأمان على الهاتف والكمبيوتر.',
+    descEn: 'Universal free video and audio downloader for phone and desktop.',
+  },
+};
+
+function isAudioJob(job: Job): boolean {
+  return (
+    job.mediaType === 'audio' ||
+    Boolean(job.audioOnly) ||
+    job.format === 'bestaudio/best' ||
+    /\.(mp3|m4a|aac|ogg|opus|wav|flac)$/i.test(job.fileName || '')
+  );
+}
+
+function formatArchiveSize(bytes?: number): string {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -62,9 +117,10 @@ function extractSharedUrl(params: URLSearchParams): string {
 }
 
 export function App() {
-  const [route, setRoute] = useState<'/' | '/stats'>(() =>
-    typeof window !== 'undefined' && window.location.pathname === '/stats' ? '/stats' : '/'
+  const [route, setRoute] = useState<string>(() =>
+    typeof window !== 'undefined' ? window.location.pathname : '/'
   );
+  const [activeTab, setActiveTab] = useState<QueueTab>('all');
   const [lang, setLang] = useState<Lang>(() => {
     const qLang = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('lang') : null;
     if (qLang === 'ar' || qLang === 'en') return qLang;
@@ -78,6 +134,14 @@ export function App() {
   const [analyzeResult, setAnalyzeResult] = useState<any | null>(null);
   const [analyzeError, setAnalyzeError] = useState('');
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [savedArchive, setSavedArchive] = useState<ArchivedDeviceItem[]>(() => {
+    try {
+      const raw = localStorage.getItem(SAVED_ARCHIVE_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
   const [localHistory, setLocalHistory] = useState<HistoryItem[]>(() => {
     try {
       const saved = localStorage.getItem('bagback-local-history');
@@ -88,9 +152,6 @@ export function App() {
   });
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<'terms' | 'privacy' | 'cleanRoom' | 'installGuide' | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return (localStorage.getItem('bagback-theme') as 'light' | 'dark') || 'dark';
-  });
   const [isStandalone, setIsStandalone] = useState<boolean>(() =>
     typeof window !== 'undefined' &&
     (window.matchMedia('(display-mode: standalone)').matches ||
@@ -132,7 +193,7 @@ export function App() {
     trackPageView(window.location.pathname);
 
     const onPopState = () => {
-      const next = window.location.pathname === '/stats' ? '/stats' : '/';
+      const next = window.location.pathname || '/';
       setRoute(next);
       trackPageView(next);
     };
@@ -167,18 +228,34 @@ export function App() {
     };
   }, []);
 
-  // Update HTML lang, dir, theme & noindex on /stats
+  // Update HTML lang, dir, SEO metadata & noindex on /stats
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
     localStorage.setItem('bagback-lang', lang);
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('bagback-theme', theme);
-    document.title =
-      lang === 'ar'
-        ? 'Bagback Download — تحميل فيديو وصوت وقوائم تشغيل مجاناً | Free Video & MP3 Downloader'
-        : 'Bagback Download — Free Video, Audio (MP3) & Playlist Downloader';
-  }, [lang, theme]);
+    document.documentElement.setAttribute('data-theme', 'dark');
+
+    const seoMeta = SEO_ROUTES[route];
+    if (seoMeta) {
+      document.title = lang === 'ar' ? seoMeta.titleAr : seoMeta.titleEn;
+    } else {
+      document.title =
+        lang === 'ar'
+          ? 'Bagback Download — تحميل فيديو وصوت ودونلود قوائم التشغيل مجاناً | Free Video & MP3 Download'
+          : 'Bagback Download — Free Video, Audio (MP3) & Playlist Downloader';
+    }
+
+    const descEl = document.querySelector('meta[name="description"]');
+    if (descEl && seoMeta) {
+      descEl.setAttribute('content', lang === 'ar' ? seoMeta.descAr : seoMeta.descEn);
+    }
+
+    const canonicalEl = document.querySelector('link[rel="canonical"]');
+    if (canonicalEl) {
+      const canonicalPath = route === '/stats' ? '/' : route;
+      canonicalEl.setAttribute('href', `https://download.bagbacktech.com${canonicalPath === '/' ? '/' : canonicalPath}`);
+    }
+  }, [lang, route]);
 
   useEffect(() => {
     const robotsMeta = document.querySelector('meta[name="robots"]');
@@ -192,7 +269,7 @@ export function App() {
     }
   }, [route]);
 
-  const navigateTo = useCallback((target: '/' | '/stats') => {
+  const navigateTo = useCallback((target: string) => {
     if (window.location.pathname !== target) {
       window.history.pushState({}, '', target);
     }
@@ -201,16 +278,55 @@ export function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  const markJobSaved = useCallback((id: string) => {
+  const appendToSavedArchive = useCallback((savedJobsList: Job[]) => {
+    if (savedJobsList.length === 0) return;
+    const nowIso = new Date().toISOString();
+    setSavedArchive((prev) => {
+      const byId = new Map(prev.map((item) => [item.id, item]));
+      for (const job of savedJobsList) {
+        byId.set(job.id, {
+          id: job.id,
+          url: job.url,
+          title: job.title || job.fileName || 'Downloaded Media',
+          fileName: job.fileName || `${job.title || 'download'}.${isAudioJob(job) ? 'mp3' : 'mp4'}`,
+          fileSize: job.fileSize,
+          mediaType: isAudioJob(job) ? 'audio' : 'video',
+          batchTitle: job.batchTitle,
+          savedAt: nowIso,
+        });
+      }
+      const nextList = Array.from(byId.values())
+        .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
+        .slice(0, 60);
+      localStorage.setItem(SAVED_ARCHIVE_STORAGE_KEY, JSON.stringify(nextList));
+      return nextList;
+    });
+  }, []);
+
+  const markJobSaved = useCallback((job: Job) => {
     setSavedJobIds((prev) => {
-      if (prev.has(id)) return prev;
+      if (prev.has(job.id)) return prev;
       const next = new Set(prev);
-      next.add(id);
-      const bounded = Array.from(next).slice(-100);
+      next.add(job.id);
+      const bounded = Array.from(next).slice(-120);
       localStorage.setItem(SAVED_IDS_STORAGE_KEY, JSON.stringify(bounded));
       return new Set(bounded);
     });
-  }, []);
+    appendToSavedArchive([job]);
+    void api.markJobArchived(job.id);
+  }, [appendToSavedArchive]);
+
+  const markBatchSaved = useCallback((batchId: string, batchJobs: Job[]) => {
+    setSavedJobIds((prev) => {
+      const next = new Set(prev);
+      for (const j of batchJobs) next.add(j.id);
+      const bounded = Array.from(next).slice(-120);
+      localStorage.setItem(SAVED_IDS_STORAGE_KEY, JSON.stringify(bounded));
+      return new Set(bounded);
+    });
+    appendToSavedArchive(batchJobs);
+    void api.markBatchArchived(batchId);
+  }, [appendToSavedArchive]);
 
   // Auto-save newly completed jobs in active session when approved
   const processAutoSaveForJob = useCallback(
@@ -223,7 +339,7 @@ export function App() {
         }
         try {
           const savedPath = await saveJobToDirectory(folderHandle, job, api.isMockMode());
-          markJobSaved(job.id);
+          markJobSaved(job);
           void api.reportStatEvent('autosave_file_saved', 1);
           trackAnalyticsEvent('autosave_folder_write', { batch: Boolean(job.batchId) });
           const label = job.title || savedPath;
@@ -235,7 +351,7 @@ export function App() {
         }
       } else if (!folderApiSupported && autoSaveEnabled) {
         triggerBrowserDownload(job, api.isMockMode());
-        markJobSaved(job.id);
+        markJobSaved(job);
         trackAnalyticsEvent('autosave_browser_trigger', { batch: Boolean(job.batchId) });
         const label = job.title || job.fileName || 'Download';
         setSaveToast(`${t('autoSaveSavedToast')} ${label}`);
@@ -419,6 +535,27 @@ export function App() {
     setJobs([]);
   }, []);
 
+  const handlePauseJob = useCallback(async (id: string) => {
+    try {
+      const updated = await api.pauseJob(id);
+      setJobs((prev) => prev.map((j) => (j.id === id ? updated : j)));
+    } catch {}
+  }, []);
+
+  const handleResumeJob = useCallback(async (id: string) => {
+    try {
+      const updated = await api.resumeJob(id);
+      setJobs((prev) => prev.map((j) => (j.id === id ? updated : j)));
+    } catch {}
+  }, []);
+
+  const handleRetryJob = useCallback(async (id: string) => {
+    try {
+      const updated = await api.retryJob(id);
+      setJobs((prev) => prev.map((j) => (j.id === id ? updated : j)));
+    } catch {}
+  }, []);
+
   const handleInstallApp = useCallback(async () => {
     if (installPrompt) {
       try {
@@ -511,13 +648,41 @@ export function App() {
     return entries.sort((a, b) => b.sortTime - a.sortTime);
   }, [jobs]);
 
+  // Filtered queue entries for All / Video / Audio / Playlist tabs
+  const filteredEntries = useMemo(() => {
+    if (activeTab === 'all') return queueEntries;
+    if (activeTab === 'playlist') return queueEntries.filter((e) => e.kind === 'batch');
+    if (activeTab === 'audio') {
+      return queueEntries.filter((e) =>
+        e.kind === 'batch' ? e.jobs.some((j) => isAudioJob(j)) : isAudioJob(e.job)
+      );
+    }
+    if (activeTab === 'video') {
+      return queueEntries.filter((e) =>
+        e.kind === 'batch' ? e.jobs.some((j) => !isAudioJob(j)) : !isAudioJob(e.job)
+      );
+    }
+    return [];
+  }, [queueEntries, activeTab]);
+
+  const tabCounts = useMemo(() => {
+    const audio = jobs.filter((j) => isAudioJob(j)).length;
+    const video = jobs.filter((j) => !isAudioJob(j)).length;
+    const playlist = queueEntries.filter((e) => e.kind === 'batch').length;
+    return {
+      all: jobs.length,
+      video,
+      audio,
+      playlist,
+      archive: savedArchive.length,
+    };
+  }, [jobs, queueEntries, savedArchive]);
+
   return (
     <div className="app">
       <Header
         lang={lang}
         setLang={setLang}
-        theme={theme}
-        setTheme={setTheme}
         onNavigateStats={() => navigateTo(route === '/stats' ? '/' : '/stats')}
         onNavigateHome={() => navigateTo('/')}
         onInstallApp={handleInstallApp}
@@ -683,50 +848,176 @@ export function App() {
                 />
               )}
 
-              {queueEntries.length > 0 && (
+              {(queueEntries.length > 0 || savedArchive.length > 0) && (
                 <div className="queue-section">
-                  <div className="section-header">
-                    <div className="section-title">
-                      {t('downloading')} / {t('history')}
-                      <span className="badge">{jobs.length}</span>
-                    </div>
+                  <div className="filter-tabs-bar" role="tablist" aria-label="Download Filters">
                     <button
                       type="button"
-                      className="btn btn-ghost"
-                      style={{ fontSize: '12px', padding: '5px 12px', minHeight: '32px' }}
-                      onClick={handleClearAll}
+                      className={`filter-tab ${activeTab === 'all' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('all')}
                     >
-                      {t('clearAll')}
+                      {t('tabAll')} <span className="filter-count">{tabCounts.all}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-tab ${activeTab === 'video' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('video')}
+                    >
+                      <VideoIcon /> {t('tabVideo')} <span className="filter-count">{tabCounts.video}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-tab ${activeTab === 'audio' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('audio')}
+                    >
+                      <MusicIcon /> {t('tabAudio')} <span className="filter-count">{tabCounts.audio}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-tab ${activeTab === 'playlist' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('playlist')}
+                    >
+                      <PlaylistIcon /> {t('tabPlaylists')} <span className="filter-count">{tabCounts.playlist}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`filter-tab ${activeTab === 'archive' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('archive')}
+                    >
+                      <ArchiveIcon /> {t('tabArchive')} <span className="filter-count">{tabCounts.archive}</span>
                     </button>
                   </div>
 
-                  {queueEntries.map((entry) =>
-                    entry.kind === 'batch' ? (
-                      <PlaylistBatchCard
-                        key={entry.batchId}
-                        batchId={entry.batchId}
-                        batchTitle={entry.batchTitle}
-                        jobs={entry.jobs}
-                        folderHandle={folderHandle}
-                        folderName={folderName}
-                        savedJobIds={savedJobIds}
-                        onMarkSaved={markJobSaved}
-                        onRequestFolder={handleRequestAutoSaveFolder}
-                        onDeleteJob={handleDelete}
-                        onDeleteBatch={handleDeleteBatch}
-                        t={t}
-                      />
-                    ) : (
-                      <JobCard
-                        key={entry.job.id}
-                        job={entry.job}
-                        onDelete={handleDelete}
-                        isSavedToDevice={savedJobIds.has(entry.job.id)}
-                        onManualSaved={markJobSaved}
-                        folderHandle={folderHandle}
-                        t={t}
-                      />
-                    )
+                  {activeTab === 'archive' ? (
+                    <div>
+                      <div className="section-header">
+                        <div className="section-title">
+                          <ArchiveIcon /> {t('archivedSectionTitle')}
+                          <span className="badge">{savedArchive.length}</span>
+                        </div>
+                        {savedArchive.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '12px', padding: '5px 12px', minHeight: '32px' }}
+                            onClick={() => {
+                              setSavedArchive([]);
+                              localStorage.removeItem(SAVED_ARCHIVE_STORAGE_KEY);
+                            }}
+                          >
+                            {t('clearArchive')}
+                          </button>
+                        )}
+                      </div>
+                      <p className="archive-hint-text">{t('archiveCleanupHint')}</p>
+                      {savedArchive.length === 0 ? (
+                        <div className="empty-state" style={{ padding: '24px 12px' }}>
+                          <p>{t('archiveEmpty')}</p>
+                        </div>
+                      ) : (
+                        <div className="archive-list">
+                          {savedArchive.map((item) => (
+                            <div key={item.id} className="job-card completed">
+                              <div className="job-header" style={{ marginBottom: 0 }}>
+                                <div className="media-type-chip">
+                                  {item.mediaType === 'audio' ? <MusicIcon /> : <VideoIcon />}
+                                </div>
+                                <div className="job-info">
+                                  <div className="job-title" dir="auto">{item.title}</div>
+                                  <div className="job-url" dir="ltr">
+                                    {item.batchTitle ? `[${item.batchTitle}] ` : ''}{item.fileSize ? `${formatArchiveSize(item.fileSize)} · ` : ''}{new Date(item.savedAt).toLocaleTimeString()}
+                                  </div>
+                                </div>
+                                <div className="job-actions">
+                                  <span className="saved-pill">
+                                    <CheckIcon /> {t('savedOnDevice')}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="icon-btn"
+                                    onClick={() => {
+                                      setUrl(item.url);
+                                      void handleAnalyze(item.url);
+                                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                                    }}
+                                    title={t('reDownload')}
+                                  >
+                                    <SearchIcon />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="icon-btn delete-btn"
+                                    onClick={() => {
+                                      const next = savedArchive.filter((x) => x.id !== item.id);
+                                      setSavedArchive(next);
+                                      localStorage.setItem(SAVED_ARCHIVE_STORAGE_KEY, JSON.stringify(next));
+                                    }}
+                                    title={t('deleteItem')}
+                                  >
+                                    <TrashIcon />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="section-header">
+                        <div className="section-title">
+                          {t('downloading')} / {t('history')}
+                          <span className="badge">{filteredEntries.length}</span>
+                        </div>
+                        {jobs.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '12px', padding: '5px 12px', minHeight: '32px' }}
+                            onClick={handleClearAll}
+                          >
+                            {t('clearAll')}
+                          </button>
+                        )}
+                      </div>
+
+                      {filteredEntries.map((entry) =>
+                        entry.kind === 'batch' ? (
+                          <PlaylistBatchCard
+                            key={entry.batchId}
+                            batchId={entry.batchId}
+                            batchTitle={entry.batchTitle}
+                            jobs={entry.jobs}
+                            folderHandle={folderHandle}
+                            folderName={folderName}
+                            savedJobIds={savedJobIds}
+                            onMarkSaved={markJobSaved}
+                            onMarkBatchSaved={markBatchSaved}
+                            onRequestFolder={handleRequestAutoSaveFolder}
+                            onDeleteJob={handleDelete}
+                            onDeleteBatch={handleDeleteBatch}
+                            onPauseJob={handlePauseJob}
+                            onResumeJob={handleResumeJob}
+                            onRetryJob={handleRetryJob}
+                            t={t}
+                          />
+                        ) : (
+                          <JobCard
+                            key={entry.job.id}
+                            job={entry.job}
+                            onDelete={handleDelete}
+                            onPause={handlePauseJob}
+                            onResume={handleResumeJob}
+                            onRetry={handleRetryJob}
+                            isSavedToDevice={savedJobIds.has(entry.job.id) || Boolean(entry.job.archived)}
+                            onManualSaved={markJobSaved}
+                            folderHandle={folderHandle}
+                            t={t}
+                          />
+                        )
+                      )}
+                    </>
                   )}
                 </div>
               )}

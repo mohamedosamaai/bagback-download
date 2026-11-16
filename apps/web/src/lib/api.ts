@@ -7,6 +7,11 @@ export interface DownloadService {
   getJobs(): Promise<Job[]>;
   deleteJob(id: string): Promise<{ deleted: boolean }>;
   clearAllJobs(): Promise<{ cleared: boolean }>;
+  pauseJob(id: string): Promise<Job>;
+  resumeJob(id: string): Promise<Job>;
+  retryJob(id: string): Promise<Job>;
+  markJobArchived(id: string): Promise<{ archived: boolean; savedOnDeviceAt?: string }>;
+  markBatchArchived(batchId: string): Promise<{ archived: boolean; count: number; savedOnDeviceAt?: string }>;
   streamJobs(callback: (jobs: Job[]) => void): () => void;
   getStats(): Promise<UsageStats>;
   reportStatEvent(event: 'autosave_file_saved' | 'playlist_folder_saved', count?: number): Promise<void>;
@@ -72,6 +77,44 @@ export class RealDownloadService implements DownloadService {
     const res = await fetch(`${this.API}/jobs`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to clear jobs');
     return res.json();
+  }
+
+  async pauseJob(id: string): Promise<Job> {
+    const res = await fetch(`${this.API}/jobs/${id}/pause`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to pause job');
+    return res.json();
+  }
+
+  async resumeJob(id: string): Promise<Job> {
+    const res = await fetch(`${this.API}/jobs/${id}/resume`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to resume job');
+    return res.json();
+  }
+
+  async retryJob(id: string): Promise<Job> {
+    const res = await fetch(`${this.API}/jobs/${id}/retry`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to retry job');
+    return res.json();
+  }
+
+  async markJobArchived(id: string): Promise<{ archived: boolean; savedOnDeviceAt?: string }> {
+    try {
+      const res = await fetch(`${this.API}/jobs/${id}/archived`, { method: 'POST' });
+      if (!res.ok) return { archived: false };
+      return res.json();
+    } catch {
+      return { archived: false };
+    }
+  }
+
+  async markBatchArchived(batchId: string): Promise<{ archived: boolean; count: number; savedOnDeviceAt?: string }> {
+    try {
+      const res = await fetch(`${this.API}/batches/${batchId}/archived`, { method: 'POST' });
+      if (!res.ok) return { archived: false, count: 0 };
+      return res.json();
+    } catch {
+      return { archived: false, count: 0 };
+    }
   }
 
   streamJobs(callback: (jobs: Job[]) => void): () => void {
@@ -277,6 +320,65 @@ export class MockDownloadService implements DownloadService {
     this.jobs = [];
     this.notify();
     return { cleared: true };
+  }
+
+  async pauseJob(id: string): Promise<Job> {
+    const job = this.jobs.find((j) => j.id === id);
+    if (job) {
+      job.status = 'paused';
+      this.notify();
+      return { ...job };
+    }
+    throw new Error('Job not found');
+  }
+
+  async resumeJob(id: string): Promise<Job> {
+    const job = this.jobs.find((j) => j.id === id);
+    if (job) {
+      job.status = 'running';
+      this.notify();
+      this.simulateProgress(id);
+      return { ...job };
+    }
+    throw new Error('Job not found');
+  }
+
+  async retryJob(id: string): Promise<Job> {
+    const job = this.jobs.find((j) => j.id === id);
+    if (job) {
+      job.status = 'queued';
+      job.progress = 0;
+      job.error = undefined;
+      this.notify();
+      this.simulateProgress(id);
+      return { ...job };
+    }
+    throw new Error('Job not found');
+  }
+
+  async markJobArchived(id: string): Promise<{ archived: boolean; savedOnDeviceAt?: string }> {
+    const job = this.jobs.find((j) => j.id === id);
+    const savedOnDeviceAt = new Date().toISOString();
+    if (job) {
+      job.archived = true;
+      job.savedOnDeviceAt = savedOnDeviceAt;
+      this.notify();
+    }
+    return { archived: true, savedOnDeviceAt };
+  }
+
+  async markBatchArchived(batchId: string): Promise<{ archived: boolean; count: number; savedOnDeviceAt?: string }> {
+    const savedOnDeviceAt = new Date().toISOString();
+    let count = 0;
+    for (const j of this.jobs) {
+      if (j.batchId === batchId && j.status === 'completed') {
+        j.archived = true;
+        j.savedOnDeviceAt = savedOnDeviceAt;
+        count += 1;
+      }
+    }
+    this.notify();
+    return { archived: true, count, savedOnDeviceAt };
   }
 
   streamJobs(callback: (jobs: Job[]) => void): () => void {

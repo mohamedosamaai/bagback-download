@@ -1695,3 +1695,122 @@ body {
   align-items: center;
   gap: 6px;
 }
+
+/* ── Header Website Button & Filter Tabs ──────────── */
+.nav-website-btn {
+  background: var(--brand-green-dim);
+  border-color: var(--brand-green-border);
+  color: var(--text-green);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.nav-website-btn:hover {
+  background: var(--brand-green);
+  color: #031409;
+  border-color: var(--brand-green);
+}
+
+.header-nav a.nav-btn {
+  text-decoration: none;
+}
+
+.filter-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 14px;
+}
+
+.filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  min-height: 40px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.filter-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.filter-tab.active {
+  background: var(--brand-green-dim);
+  border-color: var(--brand-green-border);
+  color: var(--text-green);
+}
+
+.filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+}
+
+.job-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.media-type-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.unsaved-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 6px;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fbbf24;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.status-text.paused {
+  color: #fbbf24;
+}
+
+.archive-hint-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

@@ -1,13 +1,23 @@
 import React, { useState, useRef } from 'react';
 import { Job } from '../../types';
 import { TFunction } from '../../lib/translations';
-import { FolderIcon, DownloadIcon, PlaylistIcon, TrashIcon, CheckIcon } from '../ui/Icons';
+import {
+  FolderIcon,
+  DownloadIcon,
+  PlaylistIcon,
+  TrashIcon,
+  CheckIcon,
+  RetryIcon,
+  PauseIcon,
+  PlayIcon,
+  AlertIcon,
+} from '../ui/Icons';
 import { JobCard } from './JobCard';
 import {
   DirectoryHandleLike,
   supportsDirectoryPicker,
   saveJobToDirectory,
-  triggerBrowserDownload,
+  sanitizeFsName,
   showBrowserSaveNotification,
 } from '../../lib/autoSave';
 import { api } from '../../lib/api';
@@ -20,52 +30,104 @@ interface PlaylistBatchCardProps {
   folderHandle: DirectoryHandleLike | null;
   folderName: string;
   savedJobIds: Set<string>;
-  onMarkSaved: (id: string) => void;
+  onMarkSaved: (job: Job) => void;
+  onMarkBatchSaved: (batchId: string, batchJobs: Job[]) => void;
   onRequestFolder: () => Promise<DirectoryHandleLike | null>;
   onDeleteJob: (id: string) => Promise<void>;
   onDeleteBatch: (ids: string[]) => Promise<void>;
+  onPauseJob: (id: string) => void;
+  onResumeJob: (id: string) => void;
+  onRetryJob: (id: string) => void;
   t: TFunction;
 }
 
 export function PlaylistBatchCard({
+  batchId,
   batchTitle,
   jobs,
   folderHandle,
   folderName,
   savedJobIds,
   onMarkSaved,
+  onMarkBatchSaved,
   onRequestFolder,
   onDeleteJob,
   onDeleteBatch,
+  onPauseJob,
+  onResumeJob,
+  onRetryJob,
   t,
 }: PlaylistBatchCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [savingBatch, setSavingBatch] = useState(false);
+  const [packingZip, setPackingZip] = useState(false);
+  const [savingFolder, setSavingFolder] = useState(false);
   const [saveProgressText, setSaveProgressText] = useState('');
   const cancelRef = useRef(false);
 
   const completedJobs = jobs.filter((j) => j.status === 'completed');
   const failedJobs = jobs.filter((j) => j.status === 'failed');
-  const pendingCount = jobs.length - completedJobs.length - failedJobs.length;
-  const savedCount = completedJobs.filter((j) => savedJobIds.has(j.id)).length;
+  const pausedJobs = jobs.filter((j) => j.status === 'paused');
+  const activeJobs = jobs.filter((j) => j.status === 'running' || j.status === 'queued');
+  const savedCount = completedJobs.filter((j) => savedJobIds.has(j.id) || Boolean(j.archived)).length;
+  const unsavedCompleted = completedJobs.filter((j) => !savedJobIds.has(j.id) && !j.archived);
+
   const overallProgress =
     jobs.length > 0
       ? Math.round(jobs.reduce((acc, j) => acc + (j.status === 'completed' ? 100 : j.progress || 0), 0) / jobs.length)
       : 0;
 
-  const unsavedCompleted = completedJobs.filter((j) => !savedJobIds.has(j.id));
+  // One-click single ZIP archive download (works everywhere without per-song popups)
+  const handleDownloadAsSingleZip = async () => {
+    if (completedJobs.length === 0 || packingZip) return;
+    setPackingZip(true);
+    try {
+      const zipName = `${sanitizeFsName(batchTitle, 'Playlist')}.zip`;
+      if (api.isMockMode()) {
+        const blob = new Blob([`Mock Playlist ZIP: ${batchTitle} (${completedJobs.length} files)`], {
+          type: 'application/zip',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = zipName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } else {
+        const a = document.createElement('a');
+        a.href = `/api/batches/${batchId}/zip`;
+        a.download = zipName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
 
-  const handleSaveAllSequentially = async () => {
+      onMarkBatchSaved(batchId, completedJobs);
+      void api.reportStatEvent('playlist_folder_saved', completedJobs.length);
+      trackAnalyticsEvent('playlist_zip_download', { count: completedJobs.length });
+      showBrowserSaveNotification(t('autoSaveNotifTitle'), `${batchTitle}.zip`);
+    } finally {
+      setTimeout(() => setPackingZip(false), 1200);
+    }
+  };
+
+  // Optional zero-compression desktop Folder API writer
+  const handleSaveUnzippedToFolder = async () => {
     const listToSave = unsavedCompleted.length > 0 ? unsavedCompleted : completedJobs;
     if (listToSave.length === 0) return;
 
     cancelRef.current = false;
-    setSavingBatch(true);
+    setSavingFolder(true);
 
     try {
       let targetHandle = folderHandle;
       if (supportsDirectoryPicker() && !targetHandle) {
         targetHandle = await onRequestFolder();
+      }
+      if (!targetHandle) {
+        setSavingFolder(false);
+        return;
       }
 
       let count = 0;
@@ -73,37 +135,33 @@ export function PlaylistBatchCard({
         if (cancelRef.current) break;
         count += 1;
         setSaveProgressText(`${count} / ${listToSave.length}`);
-
-        if (targetHandle) {
-          await saveJobToDirectory(targetHandle, job, api.isMockMode());
-          onMarkSaved(job.id);
-        } else {
-          triggerBrowserDownload(job, api.isMockMode());
-          onMarkSaved(job.id);
-          // Stagger sequential browser downloads to avoid browser popup throttling
-          if (count < listToSave.length) {
-            await new Promise((r) => setTimeout(r, 850));
-          }
-        }
+        await saveJobToDirectory(targetHandle, job, api.isMockMode());
+        onMarkSaved(job);
       }
 
       if (!cancelRef.current && count > 0) {
         void api.reportStatEvent('playlist_folder_saved', count);
-        trackAnalyticsEvent('playlist_batch_saved', {
-          count,
-          folder_mode: Boolean(targetHandle),
-        });
-        showBrowserSaveNotification(
-          t('autoSaveNotifTitle'),
-          `${batchTitle} (${count})`
-        );
+        trackAnalyticsEvent('playlist_folder_saved', { count });
+        showBrowserSaveNotification(t('autoSaveNotifTitle'), `${batchTitle} (${count})`);
       }
     } catch (err) {
-      console.error('[PlaylistBatchCard] Sequential save failed:', err);
+      console.error('[PlaylistBatchCard] Folder write failed:', err);
     } finally {
-      setSavingBatch(false);
+      setSavingFolder(false);
       setSaveProgressText('');
     }
+  };
+
+  const handleRetryFailed = () => {
+    for (const j of failedJobs) onRetryJob(j.id);
+  };
+
+  const handlePauseAll = () => {
+    for (const j of activeJobs) onPauseJob(j.id);
+  };
+
+  const handleResumeAll = () => {
+    for (const j of pausedJobs) onResumeJob(j.id);
   };
 
   return (
@@ -117,11 +175,22 @@ export function PlaylistBatchCard({
             <div className="batch-title" dir="auto">{batchTitle}</div>
             <div className="batch-meta">
               <span>{completedJobs.length} / {jobs.length} {t('statusCompleted')}</span>
-              {pendingCount > 0 && <span>· {pendingCount} {t('statusRunning')}</span>}
+              {activeJobs.length > 0 && <span>· {activeJobs.length} {t('statusRunning')}</span>}
               {savedCount > 0 && (
                 <span className="saved-pill">
                   <CheckIcon /> {savedCount} {t('savedOnDevice')}
                 </span>
+              )}
+              {unsavedCompleted.length > 0 && (
+                <span className="unsaved-pill">
+                  <AlertIcon /> {unsavedCompleted.length} {t('readyToSaveCount')}
+                </span>
+              )}
+              {pausedJobs.length > 0 && (
+                <span className="status-text paused">· {pausedJobs.length} {t('pausedCountLabel')}</span>
+              )}
+              {failedJobs.length > 0 && (
+                <span className="status-text failed">· {failedJobs.length} {t('failedCountLabel')}</span>
               )}
             </div>
           </div>
@@ -142,26 +211,56 @@ export function PlaylistBatchCard({
       </div>
 
       <div className="batch-actions-row">
-        {completedJobs.length > 0 && !savingBatch && (
+        {completedJobs.length > 0 && (
           <button
             type="button"
             className="btn btn-primary batch-save-btn"
-            onClick={handleSaveAllSequentially}
+            onClick={handleDownloadAsSingleZip}
+            disabled={packingZip}
           >
-            {supportsDirectoryPicker() ? <FolderIcon /> : <DownloadIcon />}
-            {folderHandle && folderName
-              ? `${t('saveBatchToFolder')} (${unsavedCompleted.length || completedJobs.length})`
-              : `${t('saveBatchSequentially')} (${unsavedCompleted.length || completedJobs.length})`}
+            {packingZip ? (
+              <><span className="spinner" /> {t('packingZipBtn')}</>
+            ) : (
+              <><DownloadIcon /> {t('downloadPlaylistZip')} ({completedJobs.length})</>
+            )}
           </button>
         )}
 
-        {savingBatch && (
+        {completedJobs.length > 0 && supportsDirectoryPicker() && folderHandle && folderName && !savingFolder && (
           <button
             type="button"
-            className="btn btn-ghost batch-save-btn"
+            className="option-chip"
+            onClick={handleSaveUnzippedToFolder}
+          >
+            <FolderIcon /> {t('saveToFolderUnzipped')} ({unsavedCompleted.length || completedJobs.length})
+          </button>
+        )}
+
+        {savingFolder && (
+          <button
+            type="button"
+            className="btn btn-ghost"
             onClick={() => { cancelRef.current = true; }}
           >
             <span className="spinner" /> {t('savingBatchProgress')} {saveProgressText} · {t('cancelAction')}
+          </button>
+        )}
+
+        {activeJobs.length > 0 && (
+          <button type="button" className="option-chip" onClick={handlePauseAll}>
+            <PauseIcon /> {t('pauseBtn')}
+          </button>
+        )}
+
+        {pausedJobs.length > 0 && (
+          <button type="button" className="option-chip selected" onClick={handleResumeAll}>
+            <PlayIcon /> {t('resumeBtn')} ({pausedJobs.length})
+          </button>
+        )}
+
+        {failedJobs.length > 0 && (
+          <button type="button" className="option-chip" onClick={handleRetryFailed}>
+            <RetryIcon /> {t('retryBtn')} ({failedJobs.length})
           </button>
         )}
 
@@ -181,7 +280,10 @@ export function PlaylistBatchCard({
               key={job.id}
               job={job}
               onDelete={onDeleteJob}
-              isSavedToDevice={savedJobIds.has(job.id)}
+              onPause={onPauseJob}
+              onResume={onResumeJob}
+              onRetry={onRetryJob}
+              isSavedToDevice={savedJobIds.has(job.id) || Boolean(job.archived)}
               onManualSaved={onMarkSaved}
               folderHandle={folderHandle}
               t={t}

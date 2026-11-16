@@ -7,6 +7,9 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const security = require('../dist/security.js');
+const { streamFilesToZip } = require('../dist/zipStream.js');
+const { PassThrough } = require('node:stream');
+const { Readable } = require('node:stream');
 
 test('isValidJobId strictly enforces UUID format', () => {
   assert.equal(security.isValidJobId('0656c014-491d-449d-ac43-3b4547252b18'), true);
@@ -88,4 +91,28 @@ test('detectPlatform categorizes URLs without storing raw links', () => {
   assert.equal(security.detectPlatform('https://www.instagram.com/reel/123'), 'instagram');
   assert.equal(security.detectPlatform('https://x.com/user/status/1'), 'twitter');
   assert.equal(security.detectPlatform('https://example.org/file.mp4'), 'other');
+});
+
+test('streamFilesToZip produces a valid multi-entry ZIP with UTF-8 Arabic names and EOCD', async () => {
+  const chunks = [];
+  const sink = new PassThrough();
+  sink.on('data', (c) => chunks.push(c));
+
+  const payload1 = Buffer.from('hello-audio-1');
+  const payload2 = Buffer.from('hello-video-2');
+
+  const res = await streamFilesToZip(
+    [
+      { name: 'أغنية عربية.mp3', createStream: () => Readable.from(payload1) },
+      { name: 'أغنية عربية.mp3', createStream: () => Readable.from(payload2) },
+    ],
+    sink
+  );
+
+  assert.equal(res.entryCount, 2);
+  const zipBuf = Buffer.concat(chunks);
+  assert.equal(zipBuf.readUInt32LE(0), 0x04034b50); // Local File Header signature PK\x03\x04
+  assert.ok(zipBuf.includes(Buffer.from('أغنية عربية.mp3', 'utf8')));
+  assert.ok(zipBuf.includes(Buffer.from('أغنية عربية (2).mp3', 'utf8')));
+  assert.equal(zipBuf.readUInt32LE(zipBuf.length - 22), 0x06054b50); // EOCD signature PK\x05\x06
 });
