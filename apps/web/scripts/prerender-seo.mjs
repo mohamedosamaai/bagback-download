@@ -228,18 +228,81 @@ ${pageEntries}
 `;
 }
 
+function readEnvOverrides() {
+  const overrides = new Map(Object.entries(process.env));
+  for (const name of ['.env.local', '.env.production.local']) {
+    const filePath = path.join(webDir, name);
+    let content = '';
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const val = trimmed.slice(eqIdx + 1).trim();
+      if (/^[A-Z0-9_]+$/.test(key) && !Object.prototype.hasOwnProperty.call(process.env, key)) {
+        overrides.set(key, val);
+      }
+    }
+  }
+  return overrides;
+}
+
+function injectOptionalMonetagSw(env) {
+  const domain = (env.get('VITE_MONETAG_SW_DOMAIN') || '').trim();
+  const zoneId = (env.get('VITE_MONETAG_SW_ZONE') || '').trim();
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(domain) || !/^\d{4,16}$/.test(zoneId)) {
+    return;
+  }
+  const swPath = path.join(distDir, 'sw.js');
+  let fd;
+  try {
+    fd = fs.openSync(swPath, 'r+');
+  } catch {
+    return;
+  }
+  try {
+    const stat = fs.fstatSync(fd);
+    const buf = Buffer.alloc(stat.size);
+    fs.readSync(fd, buf, 0, buf.length, 0);
+    const existing = buf.toString('utf8');
+    if (existing.includes(domain) && existing.includes(zoneId)) return;
+    const header = [
+      `self.options = {"domain": "${domain}", "zoneId": ${zoneId}};`,
+      `self.lary = "";`,
+      `try { importScripts('https://${domain}/act/files/service-worker.min.js?r=sw'); } catch (e) {}`,
+      '',
+    ].join('\n');
+    const updated = Buffer.from(header + existing, 'utf8');
+    fs.ftruncateSync(fd, 0);
+    fs.writeSync(fd, updated, 0, updated.length, 0);
+    console.log(`[Monetag] Attached verified Service Worker config for zone ${zoneId} inside dist/sw.js`);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function main() {
   const indexHtmlPath = path.join(distDir, 'index.html');
-  if (!fs.existsSync(indexHtmlPath)) {
+  let templateHtml;
+  try {
+    templateHtml = fs.readFileSync(indexHtmlPath, 'utf8');
+  } catch {
     throw new Error(`Expected built HTML at ${indexHtmlPath}`);
   }
-
-  const templateHtml = fs.readFileSync(indexHtmlPath, 'utf8');
   for (const page of SEO_PAGES) {
     const html = buildPageHtml(templateHtml, page);
     const outPath = path.join(distDir, `${page.slug}.html`);
     fs.writeFileSync(outPath, html, 'utf8');
   }
+
+  const env = readEnvOverrides();
+  injectOptionalMonetagSw(env);
 
   const today = new Date().toISOString().slice(0, 10);
   const sitemapXml = buildSitemapXml(today);
