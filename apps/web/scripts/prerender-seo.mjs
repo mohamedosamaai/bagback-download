@@ -228,6 +228,47 @@ ${pageEntries}
 `;
 }
 
+function readEnvOverrides() {
+  const overrides = { ...process.env };
+  for (const name of ['.env.local', '.env.production.local']) {
+    const filePath = path.join(webDir, name);
+    if (!fs.existsSync(filePath)) continue;
+    const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const val = trimmed.slice(eqIdx + 1).trim();
+      if (/^[A-Z0-9_]+$/.test(key) && !(key in process.env)) {
+        overrides[key] = val;
+      }
+    }
+  }
+  return overrides;
+}
+
+function injectOptionalMonetagSw(env) {
+  const swPath = path.join(distDir, 'sw.js');
+  if (!fs.existsSync(swPath)) return;
+  const domain = (env.VITE_MONETAG_SW_DOMAIN || '').trim();
+  const zoneId = (env.VITE_MONETAG_SW_ZONE || '').trim();
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(domain) || !/^\d{4,16}$/.test(zoneId)) {
+    return;
+  }
+  const existing = fs.readFileSync(swPath, 'utf8');
+  if (existing.includes(domain) && existing.includes(zoneId)) return;
+  const header = [
+    `self.options = {"domain": "${domain}", "zoneId": ${zoneId}};`,
+    `self.lary = "";`,
+    `try { importScripts('https://${domain}/act/files/service-worker.min.js?r=sw'); } catch (e) {}`,
+    '',
+  ].join('\n');
+  fs.writeFileSync(swPath, header + existing, 'utf8');
+  console.log(`[Monetag] Attached verified Service Worker config for zone ${zoneId} inside dist/sw.js`);
+}
+
 function main() {
   const indexHtmlPath = path.join(distDir, 'index.html');
   if (!fs.existsSync(indexHtmlPath)) {
@@ -240,6 +281,9 @@ function main() {
     const outPath = path.join(distDir, `${page.slug}.html`);
     fs.writeFileSync(outPath, html, 'utf8');
   }
+
+  const env = readEnvOverrides();
+  injectOptionalMonetagSw(env);
 
   const today = new Date().toISOString().slice(0, 10);
   const sitemapXml = buildSitemapXml(today);
