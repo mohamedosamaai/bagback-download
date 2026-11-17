@@ -13,6 +13,7 @@ import {
   ArchiveIcon,
   FolderIcon,
 } from '../ui/Icons';
+import { AdBanner } from '../ui/AdBanner';
 
 interface StatsDashboardProps {
   onBack: () => void;
@@ -457,6 +458,8 @@ export function StatsDashboard({
           </div>
         </div>
       </div>
+
+      <AdBanner position="bottom" t={t} />
     </section>
   );
 }

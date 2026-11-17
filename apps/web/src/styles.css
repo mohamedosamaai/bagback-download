@@ -1508,11 +1508,35 @@ body {
 }
 
 .ad-slot-frame {
-  min-height: 90px;
+  min-height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  direction: ltr;
+}
+
+.ad-iframe-frame {
+  border: 0;
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  border-radius: 8px;
+  background: #121714;
+}
+
+.ad-bottom-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.ad-native-host {
+  width: 100%;
+  min-height: 90px;
 }
 
 /* ── Live Usage Statistics Dashboard ──────────────── */

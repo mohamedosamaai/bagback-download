@@ -751,8 +751,6 @@ export function App() {
                 <p className="hero-desc">{t('subtagline')}</p>
               </div>
 
-              <AdBanner position="top" t={t} />
-
               <div className="input-card">
                 <div className="url-input-wrap">
                   <input
@@ -850,6 +848,8 @@ export function App() {
                   </div>
                 )}
               </div>
+
+              <AdBanner position="top" t={t} />
 
               {saveToast && (
                 <div className="toast-banner" role="status">
